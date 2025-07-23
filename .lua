@@ -1,2957 +1,2216 @@
 
-if (not LPH_OBFUSCATED) then
-    LPH_NO_VIRTUALIZE = function(...) return (...) end;
-    LPH_JIT_MAX = function(...) return (...) end;
-    LPH_JIT_ULTRA = function(...) return (...) end;
+---[ SERVICE LOADING ]---
+local function getService(name)
+	return game:GetService(name)
 end
 
+local Players = getService("Players")
+local UserInputService = getService("UserInputService")
+local RunService = getService("RunService")
+local TweenService = getService("TweenService")
+local CoreGui = getService("CoreGui")
+local ContextActionService = getService("ContextActionService")
+local Workspace = getService("Workspace")
+local HttpService = getService("HttpService")
+local ReplicatedStorage = getService("ReplicatedStorage")
+local CollectionService = getService("CollectionService")
+local Network = getService("NetworkClient") -- For bypass
 
-function load()
-    --// Services
-    local Players = game:GetService("Players")
-    local UserInputService = game:GetService("UserInputService")
-    local Workspace = game:GetService("Workspace")
-    local Lighting = game:GetService("Lighting")
-    local RunService = game:GetService("RunService")
-    local TweenService = game:GetService("TweenService")
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+---[ CAPABILITIES & CONSTANTS ]---
+local Capabilities = {
+	canSave = type(writefile) == "function",
+	canCopy = type(setclipboard) == "function",
+}
 
-    --// Variables
-    local LocalPlayer = Players.LocalPlayer
-    local Camera = Workspace:FindFirstChildWhichIsA("Camera")
-    local Hitsounds = {}
+local Constants = {
+	SETTINGS_FILE = "Goonerhub_Settings.json",
+	SETTINGS_VERSION = "2.10", -- Updated version for auto-buy removal fix
+	-- Action Names for ContextActionService
+	ACTION_TOGGLE_SPEED = "Goonerhub_ToggleSpeed",
+	ACTION_TOGGLE_FLY = "Goonerhub_ToggleFly",
+	ACTION_TELEPORT_UP = "Goonerhub_TeleportUp",
+	ACTION_TOGGLE_UI = "Goonerhub_ToggleUI",
+	ACTION_INFINITE_JUMP = "Goonerhub_InfiniteJump",
+	-- Animation IDs
+	ANIMATION_RUN = "rbxassetid://180426354",
+	-- Folder & Object Names
+	FOLDER_PLOTS = "Plots",
+	FOLDER_BASES = "Bases",
+	FOLDER_ITEMS = "Items",
+	-- Performance
+	THROTTLE_INTERVAL_FAST = 5, -- e.g., for ESP distance, every 5 render frames
+	BACKGROUND_LOOP_WAIT = 1, -- 1 second wait for slow updates
+    -- Teleport Up Settings
+    TELEPORT_UP_INCREMENT = 10, -- How much to move per step
+    TELEPORT_UP_STEPS = 15,    -- How many steps to take
+    TELEPORT_UP_TWEEN_TIME = 0.05, -- Time for each small tween
+}
 
-    --// Script Table
-    local Script = {
-        Functions = {},
-        Locals = {
-            Target = nil,
-            IsTargetting = false,
-            Resolver = {                   
-                OldTick = tick(),
-                OldPos = Vector3.new(0, 0, 0),
-                ResolvedVelocity = Vector3.new(0, 0, 0)
-            },
-            AutoSelectTick = tick(),
-            AntiAimViewer = {
-                MouseRemoteFound = false,
-                MouseRemote = nil,
-                MouseRemoteArgs = nil,
-                MouseRemotePositionIndex = nil
-            },
-            HitEffect = nil,
-            Gun = {
-                PreviousGun = nil,
-                PreviousAmmo = 999,
-                Shotguns = {"[Double-Barrel SG]", "[TacticalShotgun]", "[Shotgun]"}
-            },
-            PlayerHealth = {},
-            JumpOffset = 0,
-            BulletPath = {
-                [4312377180] = Workspace:FindFirstChild("MAP") and Workspace.MAP:FindFirstChild("Ignored") or nil,
-                [1008451066] = Workspace:FindFirstChild("Ignored") and Workspace.Ignored:FindFirstChild("Siren") and Workspace.Ignored.Siren:FindFirstChild("Radius") or nil,
-                [3985694250] = Workspace and Workspace:FindFirstChild("Ignored") or nil,
-                [5106782457] = Workspace and Workspace:FindFirstChild("Ignored") or nil,
-                [4937639028] = Workspace and Workspace:FindFirstChild("Ignored") or nil,
-                [1958807588] = Workspace and Workspace:FindFirstChild("Ignored") or nil
-            },
-            World = {
-                FogColor = Lighting.FogColor,
-                FogStart = Lighting.FogStart,
-                FogEnd = Lighting.FogEnd,
-                Ambient = Lighting.Ambient,
-                Brightness = Lighting.Brightness,
-                ClockTime = Lighting.ClockTime,
-                ExposureCompensation = Lighting.ExposureCompensation
-            },
-        
-            FakelagPreviousTick = tick(),
-            FakelagShouldSleep = false,
-            FFlags = {
-           },
-            OriginalVelocity = {},
-            RotationAngle = 0
-        },
-        Utility = {
-            Drawings = {},
-            EspCache = {}
-        },
-        Connections = {
-            GunConnections = {}
-        },
-        AzureIgnoreFolder = Instance.new("Folder", game:GetService("Workspace"))
-    }
+---[ LOCAL PLAYER & CAMERA ]---
+local player = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
 
-    --// Settings Table
-    local Settings = {
-        Rage = {               
-            Enabled = false,
-            AimPart = "HumanoidRootPart",
-            Silent = false,
-            Mouse = false,
-            Alerts = false,
-            LookAt = false,
-            Spectate = false,
-            AntiAimViewer = false,
-            AutoSelect = {
-                Enabled = false,
-                Cooldown = {
-                    Enabled = false,
-                    Amount = 0.5
-                }
-            },
-            Checks = {
-                Enabled = false,
-                Knocked = false,
-                Crew = false,
-                Wall = false,
-                Grabbed = false,
-                Vehicle = false
-            },
-            Smoothing = {
-                Horizontal = 1,
-                Vertical = 1
-            },
-            Prediction = {
-                Horizontal = 0.134,
-                Vertical = 0.134
-            },
-            Resolver = {
-                Enabled = false,
-                RefreshRate = 0
-            },
-            Fov = {
-                Enabled = false,
-                Visualize = {
-                    Enabled = false,
-                    Color = Color3.new(1, 1, 1)
-                },
-                Radius = 80
-            },
-            Visuals = {
-                Enabled = false,
-                Tracer = {
-                    Enabled = false,
-                    Color = Color3.new(1, 1, 1),
-                    Thickness = 2
-                },
-                Dot = {
-                    Enabled = false,
-                    Color = Color3.new(1, 1, 1),
-                    Filled = false,
-                    Size = 6
-                },
-                Chams = {
-                    Enabled = false,
-                    Fill = {
-                        Color = Color3.new(1, 1, 1),
-                        Transparency = 0.5
-                    },
-                    Outline = {
-                        Color = Color3.new(1, 1, 1),
-                        Transparency = 0.5
-                    }
-                }
-            },
-            Air = {
-                Enabled = false,
-                AirAimPart = {
-                    Enabled = false,
-                    HitPart = "LowerTorso"
-                },
-                JumpOffset = {
-                    Enabled = false,
-                    Offset = 0.09
-                }
-            }
-        },
-        Visuals = {
-            Esp = {
-                Enabled = false,
-                Boxes = {
-                    Enabled = false,
-                    Filled = {
-                        Enabled = false,
-                        Color = Color3.new(1, 1, 1),
-                        Transparency = 0.3
-                    },
-                    Color = Color3.new(1, 1, 1)
-                }
-            },
-            BulletTracers = {
-                Enabled = false,
-                Color = {
-                    Gradient1 = Color3.new(1, 1, 1),
-                    Gradient2 = Color3.new(0, 0, 0)
-                },
-                Duration = 1,
-                Fade = {
-                    Enabled = false,
-                    Duration = 0.5
-                }
-            },
-            BulletImpacts = {
-                Enabled = false,
-                Color = Color3.new(1, 1, 1),
-                Duration = 1,
-                Size = 1,
-                Material = "SmoothPlastic",
-                Fade = {
-                    Enabled = false,
-                    Duration = 0.5
-                }
-            },
-            OnHit = {
-                Enabled = false,
-                Effect = {
-                    Enabled = false,
-                    Color = Color3.new(1, 1, 1)
-                },
-                Sound = {
-                    Enabled = false,
-                    Volume = 5,
-                    Value = "Skeet"
-                },
-                Chams = {
-                    Enabled = false,
-                    Color = Color3.new(1, 1, 1),
-                    Material = "ForceField",
-                    Duration = 1
-                }
-            },
-            World = {
-                Enabled = false,
-                Fog = {
-                    Enabled = false,
-                    Color = Color3.new(1, 1, 1),
-                    End = 1000,
-                    Start = 10000
-                },
-                Ambient = {
-                    Enabled = false,
-                    Color = Color3.new(1, 1, 1)
-                },
-                Brightness = {
-                    Enabled = false,
-                    Value = 0
-                },
-                ClockTime = {
-                    Enabled = false,
-                    Value = 24
-                },
-                WorldExposure = {
-                    Enabled = false,
-                    Value = -0.1
-                }
-            },
-            Crosshair = {
-                Enabled = false,
-                Color = Color3.new(1, 1, 1),
-                Size = 10,
-                Gap = 2,
-                Rotation = {
-                    Enabled = false,
-                    Speed = 1
-                }
-            }
-        },
-        AntiAim = {
-            VelocitySpoofer = {
-                Enabled = false,
-                Visualize = {
-                    Enabled = false,
-                    Color = Color3.new(1, 1, 1),
-                    Prediction = 0.134
-                },
-                Type = "Underground",
-                Roll = 0,
-                Pitch = 0,
-                Yaw = 0
-            },
-            CSync = {
-                Enabled = false,
-                Type = "Custom",
-                Visualize = {
-                    Enabled = false,
-                    Color = Color3.new(1, 1, 1)
-                },
-                RandomDistance = 16,
-                Custom = {
-                    X = 0,
-                    Y = 0,
-                    Z = 0
-                },
-                TargetStrafe = {
-                    Speed = 1,
-                    Distance = 1,
-                    Height = 1
-                }                
-            },
-            Fakelag = {
-                Enabled = false,
-                WalkingCheck = false,
-                Amount = 0.1
-            },
-            VelocityDesync = {
-                Enabled = false,
-                Range = 1
-            },
-            FFlagDesync = {
-                Enabled = false,
-                SetNew = false,
-                FFlags = {"S2PhysicsSenderRate"},
-                SetNewAmount = 15,
-                Amount = 2
-            },
-        },
-        Movement = {
-            Movement = {
-                Speed = {
-                    Enabled = false,
-                    Amount = 1
-                },
-            },
-            Exploits = {
-                Enabled = false,
-                NoRecoil = false,
-                NoJumpCooldown = false,
-                NoSlowDown = false
-            },      
-            CframeFly = {
-                Fly = {
-                    Enabled = false,
-                    Amount = 1
-                },
-            },       
-        }
-    }
-   
-    --// Functions
-    do
-        --// Utility Functions
-        do
-            Script.Functions.WorldToScreen = function(Position: Vector3)
-                if not Position then return end
+---[ CONFIGURATION ]---
+local Config = {
+	Key = "6969goonerhubontop",
+	DiscordLink = "https://discord.gg/VWTsQtPaac",
+	Colors = {
+		PrimaryBg = Color3.fromRGB(24, 24, 27),
+		SecondaryBg = Color3.fromRGB(39, 39, 42),
+		Accent = Color3.fromRGB(0, 150, 255),
+		AccentDark = Color3.fromRGB(0, 120, 200),
+		Inactive = Color3.fromRGB(55, 55, 60),
+		TextPrimary = Color3.fromRGB(255, 255, 255),
+		TextSecondary = Color3.fromRGB(180, 180, 180),
+		Border = Color3.fromRGB(60, 60, 65),
+		HighlightFill = Color3.fromRGB(255, 255, 255),
+		HighlightOutline = Color3.fromRGB(255, 255, 255),
+		Skeleton = Color3.fromRGB(255, 255, 255),
+		Error = Color3.fromRGB(255, 60, 60),
+	},
+	UISize = {
+		MainFrameWidth = 554,
+		MainFrameHeight = 400,
+		TitleBarHeight = 35,
+		TabContainerWidth = 140,
+		TabButtonHeight = 35,
+		ElementHeight = 36,
+		Padding = 15,
+		SmallPadding = 3,
+		CornerRadius = 12,
+		SmallCornerRadius = 8,
+	},
+	ButtonTweenInfo = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+	SpeedRun = { Min = 0.1, Max = 0.25, Default = 0.25 },
+	InfiniteJump = { Default = 80 },
+	Fly = { Min = 1, Max = 50, Default = 50 },
+	InfiniteZoom = { Max = 10000 },
+	DefaultWalkSpeed = 16,
+	DefaultJumpPower = 50,
+}
 
-                local ViewportPointPosition, OnScreen = Camera:WorldToViewportPoint(Position)
-                local ScreenPosition = Vector2.new(ViewportPointPosition.X, ViewportPointPosition.Y)
-                return {
-                    Position = ScreenPosition,
-                    OnScreen = OnScreen
-                }
-            end
+---[ STATE & UI TABLES ]---
+local State = {
+	isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled,
+	savedKey = nil,
+	speedRunActive = false,
+	toggleSpeedRunKey = nil,
+	speedRunDistance = Config.SpeedRun.Default,
+	infiniteJumpChecked = false,
+	flyEnabled = false,
+	flySpeed = Config.Fly.Default,
+	toggleFlyKey = nil,
+	toggleTeleportUpKey = nil,
+	flyAttachment = nil,
+	flyLinearVelocity = nil,
+	flyVectorForce = nil,
+	infiniteZoomEnabled = false,
+	antiAfkEnabled = false,
+	espEnabled = false,
+	espFillEnabled = false, -- ADDED: State for the highlight fill
+	espDisplayNameEnabled = false,
+	espSkeletonEnabled = false,
+	espBoxEnabled = false,
+	espDistanceEnabled = false,
+	espTracersEnabled = false,
+	showBaseNamesEnabled = false,
+	showBaseTimerEnabled = false,
+	brainrotGodsEspEnabled = false,
+	espBrainrotGodNameEnabled = false,
+	highlightSecretsEnabled = false,
+	espSecretNameEnabled = false,
+	toggleUIKey = nil,
+	highlightedPlayers = {},
+	baseNameVisuals = {},
+	baseTimerVisuals = {},
+	highlightedBrainrotGods = {},
+	highlightedSecrets = {},
+	globalConnections = {},
+	flyUpActive = false,
+	flyDownActive = false,
+	smoothDragEnabled = true,
+	autoSaveEnabled = true,
+	originalAnimationScript = nil,
+	speedRunAnimTrack = nil,
+    isTeleporting = false, -- New state for smoother teleport
+}
 
-            Script.Functions.Connection = function(ConnectionType: any, Function: any)
-                local Connection = ConnectionType:Connect(Function)
-                return Connection
-            end
+local UI = {}
+local updateAllESPVisuals
+local updateAllBaseNameVisuals
+local updateAllBaseTimerVisuals
+local updateAllBrainrotGodVisuals
+local updateAllSecretVisuals
+local runMainScript
 
-            Script.Functions.MoveMouse = function(Position: Vector2, SmoothingX: number, SmoothingY: number)
-                local MousePosition = UserInputService:GetMouseLocation()
+---[ UTILITY FUNCTIONS ]---
+local function getPlayerCharacterAndHumanoid(p)
+	local char = p and p.Character
+	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+	return char, humanoid
+end
 
-                mousemoverel((Position.X - MousePosition.X) / SmoothingX, (Position.Y - MousePosition.Y) / SmoothingY)
-            end
+---[ SETTINGS MANAGEMENT ]---
+local function saveSettings(forceSave)
+	if not State.autoSaveEnabled and not forceSave then return end
+	if not Capabilities.canSave or not HttpService then return end
 
-            Script.Functions.CreateDrawing = function(DrawingType: string, Properties: any)
-                local DrawingObject = Drawing.new(DrawingType)
+	local settingsToSave = {
+		version = Constants.SETTINGS_VERSION,
+		savedKey = State.savedKey,
+		speedRunActive = State.speedRunActive,
+		toggleSpeedRunKey = State.toggleSpeedRunKey,
+		speedRunDistance = State.speedRunDistance,
+		infiniteJumpChecked = State.infiniteJumpChecked,
+		flyEnabled = State.flyEnabled,
+		flySpeed = State.flySpeed,
+		toggleFlyKey = State.toggleFlyKey,
+		toggleTeleportUpKey = State.toggleTeleportUpKey,
+		infiniteZoomEnabled = State.infiniteZoomEnabled,
+		antiAfkEnabled = State.antiAfkEnabled,
+		espEnabled = State.espEnabled,
+		espFillEnabled = State.espFillEnabled, -- ADDED: Save fill state
+		espDisplayNameEnabled = State.espDisplayNameEnabled,
+		espSkeletonEnabled = State.espSkeletonEnabled,
+		espBoxEnabled = State.espBoxEnabled,
+		espDistanceEnabled = State.espDistanceEnabled,
+		espTracersEnabled = State.espTracersEnabled,
+		showBaseNamesEnabled = State.showBaseNamesEnabled,
+		showBaseTimerEnabled = State.showBaseTimerEnabled,
+		brainrotGodsEspEnabled = State.brainrotGodsEspEnabled,
+		espBrainrotGodNameEnabled = State.espBrainrotGodNameEnabled,
+		highlightSecretsEnabled = State.highlightSecretsEnabled,
+		espSecretNameEnabled = State.espSecretNameEnabled,
+		toggleUIKey = State.toggleUIKey,
+		smoothDragEnabled = State.smoothDragEnabled,
+		autoSaveEnabled = State.autoSaveEnabled
+	}
 
-                for Property, Value in pairs(Properties) do
-                    DrawingObject[Property] = Value
-                end
-                return DrawingObject
-            end
+	local success, encodedData = pcall(HttpService.JSONEncode, HttpService, settingsToSave)
+	if success then
+		writefile(Constants.SETTINGS_FILE, encodedData)
+	else
+		warn("Goonerhub: Failed to encode settings.", encodedData)
+	end
+end
 
-            Script.Functions.WallCheck = function(Part: any)
-                local RayCastParams = RaycastParams.new()
-                RayCastParams.FilterType = Enum.RaycastFilterType.Exclude
-                RayCastParams.IgnoreWater = true
-                RayCastParams.FilterDescendantsInstances = Script.AzureIgnoreFolder:GetChildren()
+local function loadSettings()
+	if not isfile or not readfile or not HttpService then return end
+	if isfile(Constants.SETTINGS_FILE) then
+		local success, fileContent = pcall(readfile, Constants.SETTINGS_FILE)
+		if success and fileContent then
+			local decodedSuccess, loadedState = pcall(HttpService.JSONDecode, HttpService, fileContent)
+			if decodedSuccess then
+				if loadedState.version ~= Constants.SETTINGS_VERSION then
+					warn("Goonerhub: Settings file has a different version. Defaults will be used for new/missing settings.")
+				end
 
-                local CameraPosition = Camera.CFrame.Position
-                local Direction = (Part.Position - CameraPosition).Unit
-                local RayCastResult = workspace:Raycast(CameraPosition, Direction * 10000, RayCastParams)
+				for key, value in pairs(loadedState) do
+					State[key] = value
+				end
 
-                return RayCastResult.Instance and RayCastResult.Instance == Part
-            end
+				if State.speedRunActive and State.flyEnabled then
+					warn("Goonerhub: Conflict in loaded settings. Both Speed Run and Fly were enabled. Disabling Fly.")
+					State.flyEnabled = false
+				end
+			else
+				warn("Goonerhub: Failed to decode settings file. Using defaults.", loadedState)
+			end
+		else
+			warn("Goonerhub: Failed to read settings file. Using defaults.", fileContent)
+		end
+	end
+end
 
-            Script.Functions.Create = function(ObjectType: string, Properties: any)
-                local Object = Instance.new(ObjectType)
+---[ KEY SYSTEM ]---
+local function createKeySystem()
+	UI.keySystemGui = Instance.new("ScreenGui")
+	UI.keySystemGui.Name = "KeySystemUI"
+	UI.keySystemGui.ResetOnSpawn = false
+	UI.keySystemGui.Parent = player:WaitForChild("PlayerGui")
 
-                for Property, Value in pairs(Properties) do
-                    Object[Property] = Value
-                end
-                return Object
-            end
+	local function createKeySystemElement(className, properties)
+		local element = Instance.new(className)
+		for prop, value in pairs(properties) do
+			element[prop] = value
+		end
+		return element
+	end
+	UI.keySystemFrame = createKeySystemElement("Frame", {
+		Name = "KeySystemFrame",
+		Parent = UI.keySystemGui,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.new(0, 400, 0, 250),
+		BackgroundColor3 = Config.Colors.SecondaryBg,
+		BorderSizePixel = 0
+	})
+	createKeySystemElement("UICorner", { Parent = UI.keySystemFrame, CornerRadius = UDim.new(0, 12) })
+	createKeySystemElement("UIStroke", { Parent = UI.keySystemFrame, Color = Config.Colors.Border, Thickness = 1.5 })
 
-            Script.Functions.GetGun = function(Player: any)
-                local Info = {
-                    Tool = nil,
-                    Ammo = nil,
-                    IsGunEquipped = false
-                }
+	UI.titleLabel = createKeySystemElement("TextLabel", {
+		Name = "TitleLabel",
+		Parent = UI.keySystemFrame,
+		Size = UDim2.new(1, 0, 0, 40),
+		BackgroundColor3 = Config.Colors.PrimaryBg,
+		Text = "Authorization Required",
+		Font = Enum.Font.SourceSansBold,
+		TextColor3 = Config.Colors.Accent,
+		TextSize = 22,
+	})
+	createKeySystemElement("UICorner", { Parent = UI.titleLabel, CornerRadius = UDim.new(0, 12) })
 
-                local Tool = Player.Character:FindFirstChildWhichIsA("Tool")
+	UI.statusLabel = createKeySystemElement("TextLabel", {
+		Name = "StatusLabel",
+		Parent = UI.keySystemFrame,
+		Position = UDim2.new(0, 0, 0, 195),
+		Size = UDim2.new(1, 0, 0, 20),
+		BackgroundTransparency = 1,
+		Text = "",
+		Font = Enum.Font.SourceSans,
+		TextColor3 = Config.Colors.Error,
+		TextSize = 16,
+	})
 
-                if not Tool then return end
+	UI.keyInput = createKeySystemElement("TextBox", {
+		Name = "KeyInput",
+		Parent = UI.keySystemFrame,
+		Position = UDim2.new(0.05, 0, 0, 60),
+		Size = UDim2.new(0.9, 0, 0, 40),
+		BackgroundColor3 = Config.Colors.PrimaryBg,
+		PlaceholderText = "Enter Key...",
+		PlaceholderColor3 = Config.Colors.TextSecondary,
+		Text = "",
+		Font = Enum.Font.SourceSans,
+		TextColor3 = Config.Colors.TextPrimary,
+		TextSize = 18,
+		ClearTextOnFocus = false,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	})
+	createKeySystemElement("UICorner", { Parent = UI.keyInput, CornerRadius = UDim.new(0, 8) })
+	createKeySystemElement("UIPadding", { Parent = UI.keyInput, PaddingLeft = UDim.new(0, 10) })
 
-                if game.GameId == 1958807588 then
-                    local ArmoryGun = Player.Information.Armory:FindFirstChild(Tool.Name)
-                    if ArmoryGun then
-                        Info.Tool = Tool
-                        Info.Ammo = ArmoryGun.Ammo.Normal
-                        Info.IsGunEquipped = true
-                    else
-                        for _, Object in pairs(Tool:GetChildren()) do
-                            if Object.Name:lower():find("ammo") and not Object.Name:lower():find("max") then
-                                Info.Tool = Tool
-                                Info.IsGunEquipped = true
-                                Info.Ammo = Object
-                            end
-                        end
-                    end
-                elseif game.GameId == 3634139746 then
-                    for _, Object in pairs(Tool:getdescendants()) do
-                        if Object.Name:lower():find("ammo") and not Object.Name:lower():find("max") and not Object.Name:lower():find("no") then
-                            Info.Tool = Tool
-                            Info.Ammo = Object
-                            Info.IsGunEquipped = true
-                        end
-                    end
-                else
-                    for _, Object in pairs(Tool:GetChildren()) do
-                        if Object.Name:lower():find("ammo") and not Object.Name:lower():find("max") then
-                            Info.Tool = Tool
-                            Info.IsGunEquipped = true
-                            Info.Ammo = Object
-                        end
-                    end
-                end
+	UI.checkKeyButton = createKeySystemElement("TextButton", {
+		Name = "CheckKeyButton",
+		Parent = UI.keySystemFrame,
+		Position = UDim2.new(0.05, 0, 0, 110),
+		Size = UDim2.new(0.9, 0, 0, 40),
+		BackgroundColor3 = Config.Colors.Accent,
+		Text = "Check Key",
+		Font = Enum.Font.SourceSansBold,
+		TextColor3 = Config.Colors.TextPrimary,
+		TextSize = 18,
+	})
+	createKeySystemElement("UICorner", { Parent = UI.checkKeyButton, CornerRadius = UDim.new(0, 8) })
 
+	UI.copyDiscordButton = createKeySystemElement("TextButton", {
+		Name = "CopyDiscordButton",
+		Parent = UI.keySystemFrame,
+		Position = UDim2.new(0.05, 0, 0, 160),
+		Size = UDim2.new(0.9, 0, 0, 30),
+		BackgroundColor3 = Config.Colors.Inactive,
+		Text = "Copy Discord Link",
+		Font = Enum.Font.SourceSansBold,
+		TextColor3 = Config.Colors.TextPrimary,
+		TextSize = 16,
+	})
+	createKeySystemElement("UICorner", { Parent = UI.copyDiscordButton, CornerRadius = UDim.new(0, 8) })
 
-                return Info
-            end
+	do
+		local dragging = false
+		local dragStart, startPos
+		local targetPosition
+		local smoothingFactor = 0.08
+		local dragConnection = nil
+		UI.titleLabel.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				dragging = true
+				dragStart = input.Position
+				startPos = UI.keySystemFrame.Position
+				targetPosition = UI.keySystemFrame.Position
+				if dragConnection and dragConnection.Connected then
+					dragConnection:Disconnect()
+				end
+				dragConnection = RunService.RenderStepped:Connect(function()
+					if dragging then
+						local newPos
+						if State.smoothDragEnabled then
+							newPos = UI.keySystemFrame.Position:Lerp(targetPosition, smoothingFactor)
+						else
+							newPos = targetPosition
+						end
+						UI.keySystemFrame.Position = newPos
+					else
+						if dragConnection then
+							dragConnection:Disconnect()
+							dragConnection = nil
+						end
+					end
+				end)
+				local inputEndedConn
+				inputEndedConn = UserInputService.InputEnded:Connect(function(endInput)
+					if endInput.UserInputType == Enum.UserInputType.MouseButton1 or endInput.UserInputType == Enum.UserInputType.Touch then
+						dragging = false
+						if inputEndedConn and inputEndedConn.Connected then
+							inputEndedConn:Disconnect()
+						end
+					end
+				end)
+			end
+		end)
+		UserInputService.InputChanged:Connect(function(input)
+			if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+				local delta = input.Position - dragStart
+				targetPosition = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+			end
+		end)
+	end
+	local function onCheckKey()
+		if UI.keyInput.Text == Config.Key then
+			UI.statusLabel.TextColor3 = Color3.fromRGB(0, 255, 120)
+			UI.statusLabel.Text = "Access Granted. Loading..."
+			State.savedKey = Config.Key -- Save the key
+			saveSettings(true) -- Force save the settings
+			task.wait(1)
+			UI.keySystemGui:Destroy()
+			runMainScript()
+		else
+			UI.statusLabel.TextColor3 = Config.Colors.Error
+			UI.statusLabel.Text = "Incorrect Key. Please try again."
+			local originalPos = UI.keySystemFrame.Position
+			local tweenInfo = TweenInfo.new(0.05, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut)
+			for i = 1, 5 do
+				TweenService:Create(UI.keySystemFrame, tweenInfo, {Position = originalPos + UDim2.new(0, i % 2 == 0 and 10 or -10, 0, 0)}):Play()
+				task.wait(0.05)
+			end
+			TweenService:Create(UI.keySystemFrame, tweenInfo, {Position = originalPos}):Play()
+		end
+	end
+	local function onCopyLink()
+		if Capabilities.canCopy then
+			setclipboard(Config.DiscordLink)
+			local originalText = UI.copyDiscordButton.Text
+			UI.copyDiscordButton.Text = "Copied!"
+			task.wait(2)
+			UI.copyDiscordButton.Text = originalText
+		else
+			warn("Goonerhub: setclipboard is not available in this environment.")
+			UI.statusLabel.Text = "Could not copy link."
+		end
+	end
 
-            Script.Functions.Beam = function(StartPos: Vector3, EndPos: Vector3)
-                local ColorSequence = ColorSequence.new({
-                    ColorSequenceKeypoint.new(0, Settings.Visuals.BulletTracers.Color.Gradient1),
-                    ColorSequenceKeypoint.new(1, Settings.Visuals.BulletTracers.Color.Gradient2),
-                })
-                local Part = Instance.new("Part", Script.AzureIgnoreFolder)
-                Part.Size = Vector3.new(0, 0, 0)
-                Part.Massless = true
-                Part.Transparency = 1
-                Part.CanCollide = false
-                Part.Position = StartPos
-                Part.Anchored = true
-                local Attachment = Instance.new("Attachment", Part)
-                local Part2 = Instance.new("Part", Script.AzureIgnoreFolder)
-                Part2.Size = Vector3.new(0, 0, 0)
-                Part2.Transparency = 0
-                Part2.CanCollide = false
-                Part2.Position = EndPos
-                Part2.Anchored = true
-                Part2.Material = Enum.Material.ForceField
-                Part2.Color = Color3.fromRGB(255, 0, 212)
-                Part2.Massless = true
-                local Attachment2 = Instance.new("Attachment", Part2)
-                local Beam = Instance.new("Beam", Part)
-                Beam.FaceCamera = true
-                Beam.Color = ColorSequence
-                Beam.Attachment0 = Attachment
-                Beam.Attachment1 = Attachment2
-                Beam.LightEmission = 6
-                Beam.LightInfluence = 1
-                Beam.Width0 = 1.5
-                Beam.Width1 = 1.5
-                Beam.Texture = "http://www.roblox.com/asset/?id=446111271"
-                Beam.TextureSpeed = 2
-                Beam.TextureLength = 1
-                task.delay(Settings.Visuals.BulletTracers.Duration, function()
-                    if Settings.Visuals.BulletTracers.Fade.Enabled then
-                        local TweenValue = Instance.new("NumberValue")
-                        TweenValue.Parent = Beam
-                        local Tween = TweenService:Create(TweenValue, TweenInfo.new(Settings.Visuals.BulletTracers.Fade.Duration), {Value = 1})
-                        Tween:Play()
+	UI.checkKeyButton.MouseButton1Click:Connect(onCheckKey)
+	UI.keyInput.FocusLost:Connect(function(enterPressed)
+		if enterPressed then
+			onCheckKey()
+		end
+	end)
+	UI.copyDiscordButton.MouseButton1Click:Connect(onCopyLink)
+end
 
-                        local Connection
-                        Connection = Script.Functions.Connection(TweenValue:GetPropertyChangedSignal("Value"), function()
-                            Beam.Transparency = NumberSequence.new(TweenValue.Value, TweenValue.Value)
-                        end)
+---[ MAIN SCRIPT EXECUTION ]---
+runMainScript = function()
+	local playerModule = require(player.PlayerScripts:WaitForChild("PlayerModule"))
+	local controls = playerModule:GetControls()
 
-                        Script.Functions.Connection(Tween.Completed, function()
-                            Connection:Disconnect()
-                            Part:Destroy()
-                            Part2:Destroy()
-                        end)
-                    else
-                        Part:Destroy()
-                        Part2:Destroy()
-                    end
+	local isInitialCharacter = true
+
+	---[ UI CREATION FACTORIES ]---
+	local function createFrame(parent, name, size, position, bgColor, bgTransparency, cornerRadius, addStroke)
+		local frame = Instance.new("Frame")
+		frame.Name = name
+		frame.Size = size
+		if position then frame.Position = position end
+		frame.BackgroundColor3 = bgColor or Config.Colors.PrimaryBg
+		frame.BackgroundTransparency = bgTransparency or 0
+		frame.BorderSizePixel = 0
+		if cornerRadius then
+			Instance.new("UICorner", frame).CornerRadius = UDim.new(0, cornerRadius)
+		end
+		if addStroke then
+			local stroke = Instance.new("UIStroke", frame)
+			stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+			stroke.Color = Config.Colors.Border
+			stroke.Thickness = 1.5
+			stroke.Transparency = 0.5
+			stroke.Parent = frame
+		end
+		frame.Parent = parent
+		return frame
+	end
+	local function createCard(parent, name, height)
+		local cardHeight = height or Config.UISize.ElementHeight
+		local card = createFrame(parent, name .. "Card", UDim2.new(1, -Config.UISize.SmallPadding, 0, cardHeight), nil, Config.Colors.SecondaryBg, nil, Config.UISize.SmallCornerRadius, true)
+		return card
+	end
+	local function createTextLabel(parent, name, size, position, text, textSize, textColor, font, transparency, textXAlignment)
+		local label = Instance.new("TextLabel")
+		label.Name = name
+		label.Size = size
+		if position then label.Position = position end
+		label.BackgroundTransparency = transparency or 1
+		label.Text = text
+		label.Font = font or Enum.Font.SourceSans
+		label.TextSize = textSize
+		label.TextColor3 = textColor or Config.Colors.TextPrimary
+		label.TextStrokeTransparency = 1
+		label.TextXAlignment = textXAlignment or Enum.TextXAlignment.Center
+		if State.isMobile then label.TextScaled = true end
+		label.Parent = parent
+		return label
+	end
+	local function createButton(parent, name, size, position, text, textSize, bgColor, textColor, cornerRadius, isStateful)
+		local button = Instance.new("TextButton")
+		button.Name = name
+		button.Size = size
+		if position then button.Position = position end
+		button.BackgroundColor3 = bgColor
+		button.TextColor3 = textColor or Config.Colors.TextPrimary
+		button.Font = Enum.Font.SourceSansBold
+		button.TextSize = textSize
+		button.BorderSizePixel = 0
+		button.AutoButtonColor = false
+		button.Text = text
+		if cornerRadius then
+			Instance.new("UICorner", button).CornerRadius = UDim.new(0, cornerRadius)
+		end
+		if State.isMobile then button.TextScaled = true end
+		if not isStateful then
+			button.MouseEnter:Connect(function()
+				TweenService:Create(button, Config.ButtonTweenInfo, { BackgroundColor3 = bgColor:Lerp(Color3.new(1,1,1), 0.1) }):Play()
+			end)
+			button.MouseLeave:Connect(function()
+				TweenService:Create(button, Config.ButtonTweenInfo, { BackgroundColor3 = bgColor }):Play()
+			end)
+		end
+		button.Parent = parent
+		return button
+	end
+	local function createCheckbox(parent, name, labelText, initialChecked)
+		local frame = createCard(parent, name .. "Group")
+		local layout = Instance.new("UIListLayout", frame)
+		layout.FillDirection = Enum.FillDirection.Horizontal
+		layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+		layout.VerticalAlignment = Enum.VerticalAlignment.Center
+		layout.Padding = UDim.new(0, Config.UISize.SmallPadding)
+		local framePadding = Instance.new("UIPadding", frame)
+		framePadding.PaddingLeft = UDim.new(0, 10)
+		framePadding.PaddingRight = UDim.new(0, 10)
+		local leftSpacer = createFrame(frame, "LeftSpacer", UDim2.new(0, 40, 1, 0), nil, nil, 1)
+		leftSpacer.LayoutOrder = 1
+		local label = createTextLabel(frame, "Label", UDim2.new(0, 0, 1, 0), nil, labelText, 19, Config.Colors.TextPrimary, Enum.Font.SourceSans, 1, Enum.TextXAlignment.Left)
+		label.AutomaticSize = Enum.AutomaticSize.X
+		label.LayoutOrder = 2
+		local spacer = createFrame(frame, "Spacer", UDim2.new(1, 0, 0, 0), nil, nil, 1)
+		spacer.LayoutOrder = 3
+		local checkboxSize = Config.UISize.ElementHeight * 0.5
+		local checkbox = createButton(frame, "Checkbox", UDim2.new(0, checkboxSize, 0, checkboxSize), nil, "", 0, initialChecked and Config.Colors.Accent or Config.Colors.Inactive, nil, Config.UISize.SmallCornerRadius, true)
+		checkbox.LayoutOrder = 4
+		local checkboxStroke = Instance.new("UIStroke", checkbox)
+		checkboxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		checkboxStroke.Color = Config.Colors.Border
+		checkboxStroke.Thickness = 1.5
+		return checkbox, label
+	end
+	local function createSlider(parent, name, initialValue, minValue, maxValue, valueFormat, labelText, customParent, spacerScale)
+		local groupParent = customParent or parent
+		local group = createCard(groupParent, name .. "Group")
+		local layout = Instance.new("UIListLayout", group)
+		layout.FillDirection = Enum.FillDirection.Horizontal
+		layout.VerticalAlignment = Enum.VerticalAlignment.Center
+		layout.Padding = UDim.new(0, 10)
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		local groupPadding = Instance.new("UIPadding", group)
+		groupPadding.PaddingLeft = UDim.new(0, 10)
+		groupPadding.PaddingRight = UDim.new(0, 10)
+		local label = createTextLabel(group, "Label", UDim2.new(0, 0, 1, 0), nil, labelText, 18, Config.Colors.TextSecondary, nil, 1, Enum.TextXAlignment.Left)
+		label.AutomaticSize = Enum.AutomaticSize.X
+		label.LayoutOrder = 1
+		local finalSpacerScale = spacerScale or 0.2
+		local spacer = createFrame(group, "Spacer", UDim2.new(finalSpacerScale, 0, 1, 0), nil, nil, 1)
+		spacer.LayoutOrder = 2
+		local valueLabel = createTextLabel(group, "ValueLabel", UDim2.new(0, 60, 1, 0), nil, string.format(valueFormat, initialValue), 18, Config.Colors.Accent, Enum.Font.SourceSansBold, 1, Enum.TextXAlignment.Right)
+		valueLabel.LayoutOrder = 3
+
+		local sliderContainer = createFrame(group, "SliderContainer", UDim2.new(0, 120, 0, 20), nil, nil, 1)
+		sliderContainer.LayoutOrder = 4
+
+		local sliderTrack = createFrame(sliderContainer, "SliderTrack", UDim2.new(1, 0, 0, 4), UDim2.new(0, 0, 0.5, -2), Config.Colors.Inactive, nil, 5)
+
+		local thumbSize = 16
+		local thumb = createButton(sliderTrack, "SliderThumb", UDim2.new(0, thumbSize, 0, thumbSize), UDim2.new(0, 0, 0.5, -thumbSize/2), "", 0, Config.Colors.Accent, nil, nil, true)
+		Instance.new("UICorner", thumb).CornerRadius = UDim.new(1, 0)
+
+		return group, thumb, valueLabel, sliderTrack, label
+	end
+
+	---[ UI INITIALIZATION ]---
+	UI.screenGui = Instance.new("ScreenGui")
+	UI.screenGui.Name = "PrivateScriptUI"
+	UI.screenGui.ResetOnSpawn = false
+	UI.screenGui.Parent = player:WaitForChild("PlayerGui")
+	UI.screenGui.Enabled = true
+	local mainFrameSize = State.isMobile and UDim2.new(0.9, 0, 0.8, 0) or UDim2.new(0, Config.UISize.MainFrameWidth, 0, Config.UISize.MainFrameHeight)
+	UI.mainFrame = createFrame(UI.screenGui, "MainFrame", mainFrameSize, UDim2.new(0.5, 0, 0.5, 0), Config.Colors.PrimaryBg, nil, Config.UISize.CornerRadius, true)
+	UI.mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+	if State.isMobile then
+		Instance.new("UIAspectRatioConstraint", UI.mainFrame).AspectRatio = Config.UISize.MainFrameWidth / Config.UISize.MainFrameHeight
+	end
+	UI.titleBar = createTextLabel(UI.mainFrame, "TitleBar", UDim2.new(1, 0, 0, Config.UISize.TitleBarHeight), UDim2.new(0, 0, 0, 0), "Goonerhub", 20, Config.Colors.TextPrimary, Enum.Font.SourceSansBold, nil, Enum.TextXAlignment.Left)
+	local titlePadding = Instance.new("UIPadding", UI.titleBar)
+	titlePadding.PaddingLeft = UDim.new(0, 15)
+	UI.titleBar.BackgroundColor3 = Config.Colors.SecondaryBg
+	local titleBarStroke = Instance.new("UIStroke", UI.titleBar)
+	titleBarStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	titleBarStroke.Color = Config.Colors.Border
+	titleBarStroke.Thickness = 1.5
+	titleBarStroke.Transparency = 0.7
+
+	UI.closeButton = createButton(UI.titleBar, "CloseButton", UDim2.new(0, Config.UISize.TitleBarHeight, 0, Config.UISize.TitleBarHeight), UDim2.new(1, 0, 0, 0), "❌", 24, Color3.new(1, 1, 1), Config.Colors.TextPrimary, 6, true)
+	UI.closeButton.AnchorPoint = Vector2.new(1, 0)
+	UI.closeButton.ZIndex = UI.titleBar.ZIndex + 1
+	UI.closeButton.BackgroundTransparency = 1
+	UI.closeButton.TextScaled = false
+
+	do
+		local dragging = false
+		local dragStart, startPos
+		local targetPosition
+		local smoothingFactor = 0.08
+		local dragConnection = nil
+		UI.titleBar.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				dragging = true
+				dragStart = input.Position
+				startPos = UI.mainFrame.Position
+				targetPosition = UI.mainFrame.Position
+				if dragConnection and dragConnection.Connected then
+					dragConnection:Disconnect()
+				end
+				dragConnection = RunService.RenderStepped:Connect(function()
+					if dragging then
+						local newPos
+						if State.smoothDragEnabled then
+							newPos = UI.mainFrame.Position:Lerp(targetPosition, smoothingFactor)
+						else
+							newPos = targetPosition
+						end
+						UI.mainFrame.Position = newPos
+					else
+						if dragConnection then
+							dragConnection:Disconnect()
+							dragConnection = nil
+						end
+					end
+				end)
+				local inputEndedConn
+				inputEndedConn = UserInputService.InputEnded:Connect(function(endInput)
+					if endInput.UserInputType == Enum.UserInputType.MouseButton1 or endInput.UserInputType == Enum.UserInputType.Touch then
+						dragging = false
+						if inputEndedConn and inputEndedConn.Connected then
+							inputEndedConn:Disconnect()
+						end
+					end
+				end)
+			end
+		end)
+		UserInputService.InputChanged:Connect(function(input)
+			if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+				local delta = input.Position - dragStart
+				targetPosition = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+			end
+		end)
+	end
+	UI.tabContainer = createFrame(UI.mainFrame, "TabContainer", UDim2.new(0, Config.UISize.TabContainerWidth, 1, -Config.UISize.TitleBarHeight), UDim2.new(0, 0, 0, Config.UISize.TitleBarHeight), Config.Colors.SecondaryBg, nil, Config.UISize.CornerRadius, true)
+	local tabListLayout = Instance.new("UIListLayout", UI.tabContainer)
+	tabListLayout.Padding = UDim.new(0, 10)
+	tabListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	tabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	local tabPadding = Instance.new("UIPadding", UI.tabContainer)
+	tabPadding.PaddingTop = UDim.new(0, Config.UISize.SmallPadding)
+	tabPadding.PaddingBottom = UDim.new(0, Config.UISize.SmallPadding)
+	tabPadding.PaddingLeft = UDim.new(0, Config.UISize.SmallPadding)
+	tabPadding.PaddingRight = UDim.new(0, Config.UISize.SmallPadding)
+	UI.contentPages = createFrame(UI.mainFrame, "ContentPages", UDim2.new(1, -Config.UISize.TabContainerWidth, 1, -Config.UISize.TitleBarHeight), UDim2.new(0, Config.UISize.TabContainerWidth, 0, Config.UISize.TitleBarHeight), Config.Colors.PrimaryBg, 1)
+	local contentPadding = Instance.new("UIPadding", UI.contentPages)
+	contentPadding.PaddingTop = UDim.new(0, Config.UISize.Padding)
+	contentPadding.PaddingBottom = UDim.new(0, Config.UISize.Padding)
+	contentPadding.PaddingLeft = UDim.new(0, Config.UISize.Padding)
+	contentPadding.PaddingRight = UDim.new(0, Config.UISize.Padding)
+	UI.homeTabButton = createButton(UI.tabContainer, "HomeTabButton", UDim2.new(1, -Config.UISize.SmallPadding * 2, 0, Config.UISize.TabButtonHeight), nil, "Movement", 18, Config.Colors.Accent, Config.Colors.TextPrimary, Config.UISize.SmallCornerRadius, true)
+	UI.espTabButton = createButton(UI.tabContainer, "ESPTabButton", UDim2.new(1, -Config.UISize.SmallPadding * 2, 0, Config.UISize.TabButtonHeight), nil, "Visual", 18, Config.Colors.Inactive, Config.Colors.TextPrimary, Config.UISize.SmallCornerRadius, true)
+	UI.funTabButton = createButton(UI.tabContainer, "FunTabButton", UDim2.new(1, -Config.UISize.SmallPadding * 2, 0, Config.UISize.TabButtonHeight), nil, "Fun", 18, Config.Colors.Inactive, Config.Colors.TextPrimary, Config.UISize.SmallCornerRadius, true)
+	-- Removed Auto Buy Tab Button
+	UI.settingsTabButton = createButton(UI.tabContainer, "SettingsTabButton", UDim2.new(1, -Config.UISize.SmallPadding * 2, 0, Config.UISize.TabButtonHeight), nil, "Settings", 18, Config.Colors.Inactive, Config.Colors.TextPrimary, Config.UISize.SmallCornerRadius, true)
+
+	local function createScrollingPage(name, isVisible, layoutType)
+		local page = Instance.new("ScrollingFrame")
+		page.Name = name
+		page.Parent = UI.contentPages
+		page.Size = UDim2.new(1, 0, 1, 0)
+		page.BackgroundTransparency = 1
+		page.BorderSizePixel = 0
+		page.ScrollBarImageColor3 = Color3.fromRGB(120, 120, 120)
+		page.ScrollBarThickness = 5
+		page.Visible = isVisible
+
+		local layout
+		if layoutType == "Grid" then
+			layout = Instance.new("UIGridLayout", page)
+			layout.CellSize = UDim2.new(0.48, 0, 0, 50)
+			layout.CellPadding = UDim2.new(0.02, 0, 0.02, 0)
+			layout.SortOrder = Enum.SortOrder.LayoutOrder
+		else -- Default to List
+			layout = Instance.new("UIListLayout", page)
+			layout.Padding = UDim.new(0, Config.UISize.Padding)
+			layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+			layout.SortOrder = Enum.SortOrder.LayoutOrder
+		end
+
+		local pagePadding = Instance.new("UIPadding")
+		pagePadding.PaddingRight = UDim.new(0, 11)
+		pagePadding.Parent = page
+
+		layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+			page.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
+		end)
+
+		return page
+	end
+
+	UI.homePage = createScrollingPage("HomePage", true, "List")
+	UI.espPage = createScrollingPage("ESPPage", false, "List")
+	UI.funPage = createScrollingPage("FunPage", false, "List")
+	-- Removed Auto Buy Page
+	UI.settingsPage = createScrollingPage("SettingsPage", false, "List")
+
+	---[ UI CONTENT - HOME PAGE ]---
+	local combinedSpeedCard = createCard(UI.homePage, "CombinedSpeedCard", 109)
+	local combinedSpeedLayout = Instance.new("UIListLayout", combinedSpeedCard)
+	combinedSpeedLayout.Padding = UDim.new(0, Config.UISize.Padding)
+	combinedSpeedLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	local combinedPadding = Instance.new("UIPadding", combinedSpeedCard)
+	combinedPadding.PaddingTop = UDim.new(0.04, Config.UISize.SmallPadding)
+	combinedPadding.PaddingBottom = UDim.new(0, Config.UISize.SmallPadding)
+	combinedPadding.PaddingLeft = UDim.new(0, Config.UISize.SmallPadding)
+	combinedPadding.PaddingRight = UDim.new(0, Config.UISize.SmallPadding)
+	local speedRunKeybindGroup = createFrame(combinedSpeedCard, "SpeedRunKeybindInnerGroup", UDim2.new(1, 0, 0, Config.UISize.ElementHeight), nil, Config.Colors.SecondaryBg, 1)
+	speedRunKeybindGroup.Visible = not State.isMobile
+	local speedRunKeybindGroupLayout = Instance.new("UIListLayout", speedRunKeybindGroup)
+	speedRunKeybindGroupLayout.FillDirection = Enum.FillDirection.Horizontal
+	speedRunKeybindGroupLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	speedRunKeybindGroupLayout.Padding = UDim.new(0, 10)
+	speedRunKeybindGroupLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	local speedRunKeybindPadding = Instance.new("UIPadding", speedRunKeybindGroup)
+	speedRunKeybindPadding.PaddingLeft = UDim.new(0, 10)
+	speedRunKeybindPadding.PaddingRight = UDim.new(0, 10)
+	local KEYBIND_BUTTON_WIDTH = 60
+	local KEYBIND_PADDING = 10
+	createTextLabel(speedRunKeybindGroup, "SpeedRunKeybindLabel", UDim2.new(1, -(KEYBIND_BUTTON_WIDTH + KEYBIND_PADDING), 1, 0), nil, "Toggle Speed Run Key:", 18, Config.Colors.TextSecondary, nil, 1, Enum.TextXAlignment.Left).LayoutOrder = 1
+	UI.setSpeedRunKeyButton = createButton(speedRunKeybindGroup, "SetSpeedRunKeyButton", UDim2.new(0, KEYBIND_BUTTON_WIDTH, 0.8, 0), nil, "...", 18, Config.Colors.Inactive, Config.Colors.TextPrimary, Config.UISize.SmallCornerRadius)
+	UI.setSpeedRunKeyButton.LayoutOrder = 2
+	local sliderGroup, thumb, valueLabel, track
+	sliderGroup, thumb, valueLabel, track, _ = createSlider(combinedSpeedCard, "SpeedSlider", State.speedRunDistance, Config.SpeedRun.Min, Config.SpeedRun.Max, "%.3f", "   Speed:", combinedSpeedCard, 0.22)
+	sliderGroup.BackgroundTransparency = 1
+	sliderGroup.Size = UDim2.new(0.95, 0, 0, Config.UISize.ElementHeight)
+	UI.sliderThumb, UI.speedValueLabel, UI.sliderTrack = thumb, valueLabel, track
+	local toggleButtonGroup = createCard(UI.homePage, "ToggleButtonGroup")
+	UI.toggleButton = createButton(toggleButtonGroup, "ToggleButton", UDim2.new(1, 0, 1, 0), nil, "Speed Run: OFF", 20, Config.Colors.Inactive, Config.Colors.TextPrimary, Config.UISize.SmallCornerRadius)
+	local combinedFlyCard = createCard(UI.homePage, "CombinedFlyCard", 109)
+	local combinedFlyLayout = Instance.new("UIListLayout", combinedFlyCard)
+	combinedFlyLayout.Padding = UDim.new(0, Config.UISize.Padding)
+	combinedFlyLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	local combinedFlyPadding = Instance.new("UIPadding", combinedFlyCard)
+	combinedFlyPadding.PaddingTop = UDim.new(0.04, Config.UISize.SmallPadding)
+	combinedFlyPadding.PaddingBottom = UDim.new(0, Config.UISize.SmallPadding)
+	combinedFlyPadding.PaddingLeft = UDim.new(0, Config.UISize.SmallPadding)
+	combinedFlyPadding.PaddingRight = UDim.new(0, Config.UISize.SmallPadding)
+	local flyKeybindGroup = createFrame(combinedFlyCard, "FlyKeybindInnerGroup", UDim2.new(1, 0, 0, Config.UISize.ElementHeight), nil, Config.Colors.SecondaryBg, 1)
+	flyKeybindGroup.Visible = not State.isMobile
+	local flyKeybindGroupLayout = Instance.new("UIListLayout", flyKeybindGroup)
+	flyKeybindGroupLayout.FillDirection = Enum.FillDirection.Horizontal
+	flyKeybindGroupLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	flyKeybindGroupLayout.Padding = UDim.new(0, 10)
+	flyKeybindGroupLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	local flyKeybindPadding = Instance.new("UIPadding", flyKeybindGroup)
+	flyKeybindPadding.PaddingLeft = UDim.new(0, 10)
+	flyKeybindPadding.PaddingRight = UDim.new(0, 10)
+	createTextLabel(flyKeybindGroup, "FlyKeybindLabel", UDim2.new(1, -(KEYBIND_BUTTON_WIDTH + KEYBIND_PADDING), 1, 0), nil, "Toggle Fly Key:", 18, Config.Colors.TextSecondary, nil, 1, Enum.TextXAlignment.Left).LayoutOrder = 1
+	UI.setFlyKeyButton = createButton(flyKeybindGroup, "SetFlyKeyButton", UDim2.new(0, KEYBIND_BUTTON_WIDTH, 0.8, 0), nil, "...", 18, Config.Colors.Inactive, Config.Colors.TextPrimary, Config.UISize.SmallCornerRadius)
+	UI.setFlyKeyButton.LayoutOrder = 2
+	local flySliderGroup, flyThumb, flyValueLabel, flyTrack
+	flySliderGroup, flyThumb, flyValueLabel, flyTrack, _ = createSlider(combinedFlyCard, "FlySpeedSlider", State.flySpeed, Config.Fly.Min, Config.Fly.Max, "%.1f", "   Fly Speed:", combinedFlyCard, 0.15)
+	flySliderGroup.BackgroundTransparency = 1
+	flySliderGroup.Size = UDim2.new(0.95, 0, 0, Config.UISize.ElementHeight)
+	UI.flySliderThumb, UI.flySpeedValueLabel, UI.flySliderTrack = flyThumb, valueLabel, flyTrack
+	local flyToggleButtonGroup = createCard(UI.homePage, "FlyToggleButtonGroup")
+	UI.flyToggleButton = createButton(flyToggleButtonGroup, "FlyToggleButton", UDim2.new(1, 0, 1, 0), nil, "Fly: OFF", 20, Config.Colors.Inactive, Config.Colors.TextPrimary, Config.UISize.SmallCornerRadius)
+
+	-- Teleport Up UI elements are now hidden
+	local teleportUpCard = createFrame(UI.homePage, "TeleportUpCard", UDim2.new(1, -Config.UISize.SmallPadding, 0, 0), nil, Config.Colors.SecondaryBg, nil, Config.UISize.SmallCornerRadius, true)
+	teleportUpCard.AutomaticSize = Enum.AutomaticSize.Y
+    teleportUpCard.Visible = false -- Hide the entire card
+	local teleportUpLayout = Instance.new("UIListLayout", teleportUpCard)
+	teleportUpLayout.Padding = UDim.new(0, Config.UISize.SmallPadding)
+	teleportUpLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	teleportUpLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	local teleportUpPadding = Instance.new("UIPadding", teleportUpCard)
+	teleportUpPadding.PaddingTop = UDim.new(0, Config.UISize.SmallPadding)
+	teleportUpPadding.PaddingBottom = UDim.new(0, Config.UISize.SmallPadding)
+	teleportUpPadding.PaddingLeft = UDim.new(0, Config.UISize.SmallPadding)
+	teleportUpPadding.PaddingRight = UDim.new(0, Config.UISize.SmallPadding)
+	local teleportUpKeybindGroup = createFrame(teleportUpCard, "TeleportUpKeybindInnerGroup", UDim2.new(1, 0, 0, Config.UISize.ElementHeight), nil, Config.Colors.SecondaryBg, 1)
+	teleportUpKeybindGroup.Visible = false -- Hide keybind group
+	teleportUpKeybindGroup.LayoutOrder = 1
+	local teleportUpKeybindGroupLayout = Instance.new("UIListLayout", teleportUpKeybindGroup)
+	teleportUpKeybindGroupLayout.FillDirection = Enum.FillDirection.Horizontal
+	teleportUpKeybindGroupLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	teleportUpKeybindGroupLayout.Padding = UDim.new(0, 10)
+	teleportUpKeybindGroupLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	local teleportUpKeybindPadding = Instance.new("UIPadding", teleportUpKeybindGroup)
+	teleportUpKeybindPadding.PaddingLeft = UDim.new(0, 10)
+	teleportUpKeybindPadding.PaddingRight = UDim.new(0, 10)
+	createTextLabel(teleportUpKeybindGroup, "TeleportUpKeybindLabel", UDim2.new(1, -(KEYBIND_BUTTON_WIDTH + KEYBIND_PADDING), 1, 0), nil, "Teleport Up Key:", 18, Config.Colors.TextSecondary, nil, 1, Enum.TextXAlignment.Left).LayoutOrder = 1
+	UI.setTeleportUpKeyButton = createButton(teleportUpKeybindGroup, "SetTeleportUpKeyButton", UDim2.new(0, KEYBIND_BUTTON_WIDTH, 0.8, 0), nil, "...", 18, Config.Colors.Inactive, Config.Colors.TextPrimary, Config.UISize.SmallCornerRadius)
+	UI.setTeleportUpKeyButton.LayoutOrder = 2
+	local teleportUpButtonGroup = createFrame(UI.homePage, "TeleportUpButtonGroup", UDim2.new(1, -Config.UISize.SmallPadding, 0, Config.UISize.ElementHeight), nil, nil, 1)
+	teleportUpButtonGroup.BackgroundTransparency = 1
+    teleportUpButtonGroup.Visible = false -- Hide button group
+	UI.teleportUpButton = createButton(teleportUpButtonGroup, "TeleportUpButton", UDim2.new(1, 0, 1, 0), nil, "Teleport Up", 20, Config.Colors.Inactive, Config.Colors.TextPrimary, Config.UISize.SmallCornerRadius)
+
+	---[ UI CONTENT - ESP PAGE ]---
+	local playerEspTitle = createTextLabel(UI.espPage, "PlayerEspTitle", UDim2.new(1, 0, 0, 30), nil, "Player ESP", 22, Config.Colors.TextPrimary, Enum.Font.SourceSansBold, 1, Enum.TextXAlignment.Left)
+	playerEspTitle.LayoutOrder = 1
+	local playerEspPadding = Instance.new("UIPadding", playerEspTitle)
+	playerEspPadding.PaddingLeft = UDim.new(0, 2)
+
+	UI.espEnableCheckbox, _ = createCheckbox(UI.espPage, "ESPEnable", "  Highlight Players", State.espEnabled)
+	UI.espEnableCheckbox.Parent.LayoutOrder = 2
+
+	UI.espFillCheckbox, _ = createCheckbox(UI.espPage, "ESPFill", "  Fill", State.espFillEnabled)
+	UI.espFillCheckbox.Parent.LayoutOrder = 3
+
+	UI.espDisplayNameCheckbox, _ = createCheckbox(UI.espPage, "ESPDisplayName", "  Show Display Names", State.espDisplayNameEnabled)
+	UI.espDisplayNameCheckbox.Parent.LayoutOrder = 4
+	UI.espDistanceCheckbox, _ = createCheckbox(UI.espPage, "ESPDistance", "  Show Distance", State.espDistanceEnabled)
+	UI.espDistanceCheckbox.Parent.LayoutOrder = 5
+	UI.espSkeletonCheckbox, _ = createCheckbox(UI.espPage, "ESPSkeleton", "  Show Body Dots", State.espSkeletonEnabled)
+	UI.espSkeletonCheckbox.Parent.LayoutOrder = 6
+	UI.espBoxCheckbox, _ = createCheckbox(UI.espPage, "ESPBox", "  Show Boxes", State.espBoxEnabled)
+	UI.espBoxCheckbox.Parent.LayoutOrder = 7
+	UI.espTracersCheckbox, _ = createCheckbox(UI.espPage, "ESPTracers", "  Show Tracers", State.espTracersEnabled)
+	UI.espTracersCheckbox.Parent.LayoutOrder = 8
+
+	local baseEspTitle = createTextLabel(UI.espPage, "BaseEspTitle", UDim2.new(1, 0, 0, 30), nil, "Base ESP", 22, Config.Colors.TextPrimary, Enum.Font.SourceSansBold, 1, Enum.TextXAlignment.Left)
+	baseEspTitle.LayoutOrder = 9
+	local baseEspPadding = Instance.new("UIPadding", baseEspTitle)
+	baseEspPadding.PaddingLeft = UDim.new(0, 2)
+
+	UI.showBaseNamesCheckbox, _ = createCheckbox(UI.espPage, "ShowBaseNames", "  Show Base Names", State.showBaseNamesEnabled)
+	UI.showBaseNamesCheckbox.Parent.LayoutOrder = 10
+	UI.showBaseTimerCheckbox, _ = createCheckbox(UI.espPage, "ShowBaseTimer", "  Show Base Timer", State.showBaseTimerEnabled)
+	UI.showBaseTimerCheckbox.Parent.LayoutOrder = 11
+
+	local brainrotTitle = createTextLabel(UI.espPage, "BrainrotTitle", UDim2.new(1, 0, 0, 30), nil, "Brainrot ESP", 22, Config.Colors.TextPrimary, Enum.Font.SourceSansBold, 1, Enum.TextXAlignment.Left)
+	brainrotTitle.LayoutOrder = 12
+	local brainrotPadding = Instance.new("UIPadding", brainrotTitle)
+	brainrotPadding.PaddingLeft = UDim.new(0, 2)
+
+	UI.brainrotGodsEspCheckbox, _ = createCheckbox(UI.espPage, "BrainrotGodsEsp", "  Highlight Brainrot Gods", State.brainrotGodsEspEnabled)
+	UI.brainrotGodsEspCheckbox.Parent.LayoutOrder = 13
+	UI.espBrainrotGodNameCheckbox, _ = createCheckbox(UI.espPage, "ESPBrainrotGodName", "  Show God Names", State.espBrainrotGodNameEnabled)
+	UI.espBrainrotGodNameCheckbox.Parent.LayoutOrder = 14
+
+	UI.highlightSecretsCheckbox, _ = createCheckbox(UI.espPage, "HighlightSecrets", "  Highlight Secrets", State.highlightSecretsEnabled)
+	UI.highlightSecretsCheckbox.Parent.LayoutOrder = 15
+	UI.espSecretNameCheckbox, _ = createCheckbox(UI.espPage, "ESPSecretName", "  Show Secret Names", State.espSecretNameEnabled)
+	UI.espSecretNameCheckbox.Parent.LayoutOrder = 16
+
+	---[ UI CONTENT - FUN PAGE ]---
+	UI.ijCheckbox, _ = createCheckbox(UI.funPage, "InfiniteJump", "  Infinite Jump", State.infiniteJumpChecked)
+	UI.infiniteZoomCheckbox, _ = createCheckbox(UI.funPage, "InfiniteZoom", "  Infinite Camera Zoom", State.infiniteZoomEnabled)
+	UI.antiAfkCheckbox, _ = createCheckbox(UI.funPage, "AntiAFK", "  Anti-AFK", State.antiAfkEnabled)
+	UI.forceResetButton = createButton(UI.funPage, "ForceResetButton", UDim2.new(1, -Config.UISize.SmallPadding, 0, Config.UISize.ElementHeight), nil, "Force Reset Character", 20, Config.Colors.Error, Config.Colors.TextPrimary, Config.UISize.SmallCornerRadius)
+
+	---[ UI CONTENT - SETTINGS PAGE ]---
+	local uiKeybindGroup = createCard(UI.settingsPage, "UIKeybindGroup")
+	uiKeybindGroup.Visible = not State.isMobile
+	local uiKeybindGroupLayout = Instance.new("UIListLayout", uiKeybindGroup)
+	uiKeybindGroupLayout.FillDirection = Enum.FillDirection.Horizontal
+	uiKeybindGroupLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	uiKeybindGroupLayout.Padding = UDim.new(0, KEYBIND_PADDING)
+	uiKeybindGroupLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	local uiKeybindPadding = Instance.new("UIPadding", uiKeybindGroup)
+	uiKeybindPadding.PaddingLeft = UDim.new(0, 10)
+	uiKeybindPadding.PaddingRight = UDim.new(0, 10)
+	createTextLabel(uiKeybindGroup, "UIKeybindLabel", UDim2.new(1, -(KEYBIND_BUTTON_WIDTH + KEYBIND_PADDING), 1, 0), nil, "Toggle UI Key:", 18, Config.Colors.TextSecondary, nil, 1, Enum.TextXAlignment.Left).LayoutOrder = 1
+	UI.uiKeybindButton = createButton(uiKeybindGroup, "UIKeybindButton", UDim2.new(0, KEYBIND_BUTTON_WIDTH, 0.8, 0), nil, "...", 18, Config.Colors.Inactive, Config.Colors.TextPrimary, Config.UISize.SmallCornerRadius)
+	UI.uiKeybindButton.LayoutOrder = 2
+	local closeButtonGroup = createCard(UI.settingsPage, "CloseButtonGroup")
+	UI.closeUIButton = createButton(closeButtonGroup, "CloseUIButton", UDim2.new(1, 0, 1, 0), nil, "Hide UI", 20, Config.Colors.Error, Config.Colors.TextPrimary, Config.UISize.SmallCornerRadius)
+	UI.smoothDragCheckbox, _ = createCheckbox(UI.settingsPage, "SmoothDrag", "  Smooth UI Dragging", State.smoothDragEnabled)
+	UI.autoSaveCheckbox, _ = createCheckbox(UI.settingsPage, "AutoSave", "  Auto-Save Settings", State.autoSaveEnabled)
+
+	---[ UI CONTENT - MOBILE ]---
+	UI.mobileToggleButton = createButton(UI.screenGui, "MobileToggleButton", UDim2.new(0, 150, 0, 45), UDim2.new(0.5, -75, 0, Config.UISize.Padding), "Goonerhub GUI", 20, Config.Colors.Accent, Config.Colors.TextPrimary, Config.UISize.CornerRadius)
+
+	UI.mobileToggleButton.Visible = false
+	UI.mobileToggleButton.ZIndex = 10
+	UI.mobileToggleButton.TextWrapped = true
+	local mobileButtonStroke = Instance.new("UIStroke", UI.mobileToggleButton)
+	mobileButtonStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	mobileButtonStroke.Color = Config.Colors.Border
+	mobileButtonStroke.Thickness = 1.5
+	mobileButtonStroke.Transparency = 0.5
+
+	do
+		local dragging = false
+		local dragStart, startPos
+		local dragThreshold = 5
+
+		UI.mobileToggleButton.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				dragging = true
+				dragStart = input.Position
+				startPos = UI.mobileToggleButton.Position
+			end
+		end)
+
+		UserInputService.InputChanged:Connect(function(input)
+			if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+				local delta = input.Position - dragStart
+				local newPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+
+				if State.smoothDragEnabled then
+					TweenService:Create(UI.mobileToggleButton, TweenInfo.new(0.08), {Position = newPos}):Play()
+				else
+					UI.mobileToggleButton.Position = newPos
+				end
+			end
+		end)
+
+		UI.mobileToggleButton.InputEnded:Connect(function(input)
+			if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+				if (input.Position - dragStart).Magnitude < dragThreshold then
+					UI.mainFrame.Visible = true
+					UI.mobileToggleButton.Visible = false
+					if State.isMobile and UI.mobileControlsFrame then
+						UI.mobileControlsFrame.Visible = true
+					end
+				end
+				dragging = false
+			end
+		end)
+	end
+
+	local updateSpeedRunState
+	local updateFlyToggleButton
+	local toggleSpeedRun
+	local toggleFly
+	local handleTeleportToggle
+
+	if State.isMobile then
+		UI.mobileControlsFrame = createFrame(UI.screenGui, "MobileControlsFrame", UDim2.new(1, 0, 0, 80), UDim2.new(0, 0, 1, -80), nil, 1)
+		UI.mobileControlsFrame.ZIndex = 10
+
+		local buttonWidth = UDim2.new(0.2, 0, 0.8, 0)
+		local mobileSpeedButton = createButton(UI.mobileControlsFrame, "MobileSpeedButton", buttonWidth, UDim2.new(0.05, 0, 0.1, 0), "Speed", 18, Config.Colors.Inactive, Config.Colors.TextPrimary, Config.UISize.CornerRadius)
+		local mobileFlyButton = createButton(UI.mobileControlsFrame, "MobileFlyButton", buttonWidth, UDim2.new(0.27, 0, 0.1, 0), "Fly", 18, Config.Colors.Inactive, Config.Colors.TextPrimary, Config.UISize.CornerRadius)
+		local mobileTeleportButton = createButton(UI.mobileControlsFrame, "MobileTeleportButton", buttonWidth, UDim2.new(0.49, 0, 0.1, 0), "Teleport", 18, Config.Colors.Accent, Config.Colors.TextPrimary, Config.UISize.CornerRadius)
+		local mobileFlyUpButton = createButton(UI.mobileControlsFrame, "MobileFlyUpButton", buttonWidth, UDim2.new(0.71, 0, 0.1, 0), "Up", 18, Config.Colors.Accent, Config.Colors.TextPrimary, Config.UISize.CornerRadius)
+		local mobileFlyDownButton = createButton(UI.mobileControlsFrame, "MobileFlyDownButton", buttonWidth, UDim2.new(0.71, 0, 0.1, 0), "Down", 18, Config.Colors.Accent, Config.Colors.TextPrimary, Config.UISize.CornerRadius)
+
+		mobileFlyUpButton.Visible = false
+		mobileFlyDownButton.Visible = false
+
+		local function updateMobileButtons()
+			TweenService:Create(mobileSpeedButton, Config.ButtonTweenInfo, { BackgroundColor3 = State.speedRunActive and Config.Colors.Accent or Config.Colors.Inactive }):Play()
+			TweenService:Create(mobileFlyButton, Config.ButtonTweenInfo, { BackgroundColor3 = State.flyEnabled and Config.Colors.Accent or Config.Colors.Inactive }):Play()
+			mobileFlyUpButton.Visible = State.flyEnabled
+			mobileFlyDownButton.Visible = State.flyEnabled
+			if State.flyEnabled then
+				mobileTeleportButton.Position = UDim2.new(0.49, 0, 0.1, 0)
+				mobileFlyUpButton.Position = UDim2.new(0.71, 0, 0.1, 0)
+				mobileFlyDownButton.Position = UDim2.new(0.71, 0, 0.1, 0)
+			else
+				mobileTeleportButton.Position = UDim2.new(0.49, 0, 0.1, 0)
+			end
+		end
+
+		mobileSpeedButton.MouseButton1Click:Connect(function() toggleSpeedRun(); updateMobileButtons() end)
+		mobileFlyButton.MouseButton1Click:Connect(function() toggleFly(); updateMobileButtons() end)
+		mobileTeleportButton.MouseButton1Click:Connect(function() handleTeleportToggle() end)
+		mobileFlyUpButton.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch then State.flyUpActive = true end end)
+		mobileFlyUpButton.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch then State.flyUpActive = false end end)
+		mobileFlyDownButton.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch then State.flyDownActive = true end end)
+		mobileFlyDownButton.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.Touch then State.flyDownActive = false end end)
+	end
+
+	---[ ANTI-CHEAT BYPASS & MOVEMENT ENHANCEMENTS ]---
+
+    --[[
+        hookmetamethod Utility:
+        This function attempts to hook a metamethod of an object.
+        NOTE: In standard Roblox Luau, 'debug.getmetatable' and 'debug.setmetatable'
+        are typically restricted for security reasons. This utility is provided
+        conceptually as requested, assuming a privileged execution environment
+        (e.g., an exploit) where such functions might be available).
+        It will not work in a regular Roblox script.
+    ]]
+    local function hookmetamethod(obj, metamethodName, hookFunction)
+        local originalMetatable = getmetatable(obj)
+        if not originalMetatable then
+            warn("Goonerhub Hook: Object does not have a metatable.")
+            return nil
+        end
+
+        local originalMetamethod = originalMetatable[metamethodName]
+        if not originalMetamethod then
+            warn("Goonerhub Hook: Metamethod '" .. metamethodName .. "' not found.")
+            return nil
+        end
+
+        local newMetatable = {}
+        for k, v in pairs(originalMetatable) do
+            newMetatable[k] = v
+        end
+
+        setmetatable(obj, newMetatable)
+        return originalMetamethod
+    end
+
+    -- Conceptual hooks for fly anti-detection:
+    -- These hooks are illustrative and would only function in a privileged environment.
+    -- Their effectiveness depends on the specific anti-cheat mechanisms in the game.
+    local function setupFlyHooks()
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+        -- Attempt to hook __namecall for any RemoteEvent/RemoteFunction in ReplicatedStorage
+        -- This is a very broad hook and might interfere with legitimate game functions.
+        -- In a real scenario, you'd target specific remotes known to be used for anti-cheat.
+        for _, obj in pairs(ReplicatedStorage:GetDescendants()) do
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                pcall(function() -- Use pcall as hookmetamethod might fail
+                    hookmetamethod(obj, "__namecall", function(original, self, method, ...)
+                        -- You could add logic here to filter or modify arguments
+                        -- For example, if 'method' is related to 'fly_detection' or 'movement_check'
+                        -- print("Goonerhub Fly Hook: Remote Call:", self.Name, method, ...)
+                        return original(self, method, ...)
+                    end)
                 end)
             end
-
-            Script.Functions.Impact = function(Pos: Vector3)
-                local Part = Script.Functions.Create("Part", {
-                    Parent = Script.AzureIgnoreFolder,
-                    Color = Settings.Visuals.BulletImpacts.Color,
-                    Size = Vector3.new(Settings.Visuals.BulletImpacts.Size, Settings.Visuals.BulletImpacts.Size, Settings.Visuals.BulletImpacts.Size),
-                    Position = Pos,
-                    Anchored = true,
-                    Material = Enum.Material[Settings.Visuals.BulletImpacts.Material]
-                })
-
-                task.delay(Settings.Visuals.BulletImpacts.Duration, function()
-                    if Settings.Visuals.BulletImpacts.Fade.Enabled then
-                        local Tween = TweenService:Create(Part, TweenInfo.new(Settings.Visuals.BulletImpacts.Fade.Duration), {Transparency = 1})
-                        Tween:Play()
-
-                        Script.Functions.Connection(Tween.Completed, function()
-                            Part:Destroy()
-                        end)
-                    else
-                        Part:Destroy()
-                    end
-                end)
-            end
-
-            Script.Functions.GetClosestPlayerDamage = function(Position: Vector3, MaxRadius: number)
-                local Radius = MaxRadius
-                local ClosestPlayer
-
-                for PlayerName, Health in pairs(Script.Locals.PlayerHealth) do
-                    local Player = Players:FindFirstChild(PlayerName)
-                    if Player and Player.Character then
-                        local PlayerPosition = Player.Character.PrimaryPart.Position
-                        local Distance = (Position - PlayerPosition).Magnitude
-                        local CurrentHealth = Player.Character.Humanoid.Health
-                        if (Distance < Radius) and (CurrentHealth < Health) then
-                            Radius = Distance
-                            ClosestPlayer = Player
-                        end
-                    end
-                end
-                return ClosestPlayer
-            end
-
-
-            Script.Functions.Effect = function(Part, Color)
-                local Clone = Script.Locals.HitEffect:Clone()
-                Clone.Parent = Part
-
-                for _, Effect in pairs(Clone:GetChildren()) do
-                    if Effect:IsA("ParticleEmitter") then
-                        Effect.Color = ColorSequence.new({
-                            ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 0, 0)),
-                            ColorSequenceKeypoint.new(0.495, Settings.Visuals.OnHit.Effect.Color),
-                            ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0)),
-                        })
-                        Effect:Emit(1)
-                    end
-                end
-
-                task.delay(2, function()
-                    Clone:Destroy()
-                end)
-            end
-
-            Script.Functions.PlaySound = function(SoundId, Volume)
-                local Sound = Instance.new("Sound")
-                Sound.Parent = Script.AzureIgnoreFolder
-                Sound.Volume = Volume
-                Sound.SoundId = SoundId
-
-                Sound:Play()
-
-                Script.Functions.Connection(Sound.Ended, function()
-                    Sound:Destroy()
-                end)
-            end
-
-            Script.Functions.Hitcham = function(Player, Color)
-                for _, BodyPart in pairs(Player.Character:GetChildren()) do
-                    if BodyPart.Name ~= "HumanoidRootPart" and BodyPart:IsA("BasePart") then
-                        local Part = Instance.new("Part")
-                        Part.Name = BodyPart.Name .. "_Clone"
-                        Part.Parent = Script.AzureIgnoreFolder
-                        Part.Material = Enum.Material[Settings.Visuals.OnHit.Chams.Material]
-                        Part.Color = Settings.Visuals.OnHit.Chams.Color
-                        Part.Transparency = 0
-                        Part.Anchored = true
-                        Part.Size = BodyPart.Size
-                        Part.CFrame = BodyPart.CFrame
-
-                        task.delay(Settings.Visuals.OnHit.Chams.Duration, function()
-                            Part:Destroy()
-                        end)
-                    end           
-                end
-            end
-
-            Script.Functions.Rotate = function(Vector, Origin, Angle)
-                local CosA = math.cos(Angle)
-                local SinA = math.sin(Angle)
-                local X = Vector.X - Origin.X
-                local Y = Vector.Y - Origin.Y
-                local NewX = X * CosA - Y * SinA
-                local NewY = X * SinA + Y * CosA
-                return Vector2.new(NewX + Origin.x, NewY + Origin.y)
-            end
         end
 
-        --// General Functions
-        do
-            Script.Functions.GetClosestPlayer = function()
-                local Radius = Settings.Rage.Fov.Enabled and Settings.Rage.Fov.Radius or math.huge
-                local ClosestPlayer
-                local Mouse = UserInputService:GetMouseLocation()
-
-                for _, Player in pairs(Players:GetPlayers()) do
-                    if Player ~= LocalPlayer then
-                        --// Variables
-                        local ScreenPosition = Script.Functions.WorldToScreen(Player.Character.PrimaryPart.Position)
-                        local Distance = (Mouse - ScreenPosition.Position).Magnitude
-
-                        --// OnScreen Check
-                        if not ScreenPosition.OnScreen then continue end
-
-                        --// Checks
-                        if (Settings.Rage.Checks.Enabled and (Settings.Rage.Checks.Vehicle and Player.Character:FindFirstChild("[CarHitBox]")) or (Settings.Rage.Checks.Knocked and Player.Character.BodyEffects["K.O"].Value == true) or (Settings.Rage.Checks.Grabbed and Player.Character:FindFirstChild("GRABBING_CONSTRAINT")) or (Settings.Rage.Checks.Crew and Player.DataFolder.Information.Crew.Value == LocalPlayer.DataFolder.Information.Crew.Value) or (Settings.Rage.Checks.Wall and Script.Functions.WallCheck(Player.Character.PrimaryPart))) then continue end
-
-                        if (Distance < Radius) then
-                            Radius = Distance
-                            ClosestPlayer = Player
-                        end
-                    end
-                end
-
-                return ClosestPlayer
-            end
-
-            Script.Functions.GetPredictedPosition = function()
-                local BodyPart = Script.Locals.Target.Character[Settings.Rage.AimPart]
-                local Velocity = Settings.Rage.Resolver.Enabled and Script.Locals.Resolver.ResolvedVelocity or Script.Locals.Target.Character.HumanoidRootPart.Velocity
-                local Position = BodyPart.Position + Velocity * Vector3.new(Settings.Rage.Prediction.Horizontal, Settings.Rage.Prediction.Vertical, Settings.Rage.Prediction.Horizontal)
-
-                if Settings.Rage.Air.Enabled and Settings.Rage.Air.JumpOffset.Enabled then
-                    Position = Position + Vector3.new(0, Script.Locals.JumpOffset, 0)
-                end
-
-                return Position
-            end             
-
-            Script.Functions.Resolve = function()
-                if Settings.Rage.Enabled and Settings.Rage.Resolver.Enabled and Script.Locals.IsTargetting and Script.Locals.Target then
-                    --// Variables
-                    local HumanoidRootPart = Script.Locals.Target.Character.HumanoidRootPart
-                    local CurrentPosition = HumanoidRootPart.Position
-                    local DeltaTime = tick() - Script.Locals.Resolver.OldTick
-                    local NewVelocity = (CurrentPosition - Script.Locals.Resolver.OldPos) / DeltaTime
-
-                    --// Set the velocity
-                    Script.Locals.Resolver.ResolvedVelocity = NewVelocity
-
-                    --// Update the old tick and old position
-                    if tick() - Script.Locals.Resolver.OldTick >= 1 / Settings.Rage.Resolver.RefreshRate then
-                        Script.Locals.Resolver.OldTick, Script.Locals.Resolver.OldPos = tick(), HumanoidRootPart.Position
-                    end
-                end
-            end
-
-            Script.Functions.MouseAim = function()
-                if Settings.Rage.Enabled and Settings.Rage.Mouse and Script.Locals.IsTargetting and Script.Locals.Target then
-                    local Position = Script.Functions.GetPredictedPosition()
-                    local ScreenPosition = Script.Functions.WorldToScreen(Position)
-
-                    if ScreenPosition.OnScreen then
-                        Script.Functions.MoveMouse(ScreenPosition.Position, Settings.Rage.Smoothing.Horizontal, Settings.Rage.Smoothing.Vertical)
-                    end
-                end
-            end
-
-            Script.Functions.UpdateFieldOfView = function()
-                Script.Utility.Drawings["FieldOfViewVisualizer"].Visible = Settings.Rage.Enabled and Settings.Rage.Fov.Enabled and Settings.Rage.Fov.Visualize.Enabled
-                Script.Utility.Drawings["FieldOfViewVisualizer"].Color = Settings.Rage.Fov.Visualize.Color
-                Script.Utility.Drawings["FieldOfViewVisualizer"].Radius = Settings.Rage.Fov.Radius
-                Script.Utility.Drawings["FieldOfViewVisualizer"].Position = UserInputService:GetMouseLocation()
-            end
-
-            Script.Functions.UpdateTargetVisuals = function()
-                --// ScreenPosition, Will be changed later
-                local Position
-
-                --// Variable to indicate if you"re targetting or not with a check if the target visuals are enabled
-                local IsTargetting = Settings.Rage.Enabled and Settings.Rage.Visuals.Enabled and Script.Locals.IsTargetting and Script.Locals.Target or false
-
-                --// Change the position
-                if IsTargetting then
-                    local PredictedPosition = Script.Functions.GetPredictedPosition()
-                    Position = Script.Functions.WorldToScreen(PredictedPosition)
-                end
-
-                --// Variable to indicate if the drawing elements should show
-                local TracerShow = IsTargetting and Settings.Rage.Visuals.Tracer.Enabled and Position.OnScreen or false
-                local DotShow = IsTargetting and Settings.Rage.Visuals.Dot.Enabled and Position.OnScreen or false
-                local ChamsShow = IsTargetting and Settings.Rage.Visuals.Chams.Enabled and Script.Locals.Target and Script.Locals.Target.Character or nil
-
-
-                --// Set the drawing elements visibility
-                Script.Utility.Drawings["TargetTracer"].Visible = TracerShow
-                Script.Utility.Drawings["TargetDot"].Visible = DotShow
-                Script.Utility.Drawings["TargetChams"].Parent = ChamsShow
-
-
-                --// Update the drawing elements
-                if TracerShow then
-                    Script.Utility.Drawings["TargetTracer"].From = UserInputService:GetMouseLocation()
-                    Script.Utility.Drawings["TargetTracer"].To = Position.Position
-                    Script.Utility.Drawings["TargetTracer"].Color = Settings.Rage.Visuals.Tracer.Color
-                    Script.Utility.Drawings["TargetTracer"].Thickness = Settings.Rage.Visuals.Tracer.Thickness
-                end
-
-                if DotShow then
-                    Script.Utility.Drawings["TargetDot"].Position = Position.Position
-                    Script.Utility.Drawings["TargetDot"].Radius = Settings.Rage.Visuals.Dot.Size
-                    Script.Utility.Drawings["TargetDot"].Filled = Settings.Rage.Visuals.Dot.Filled
-                    Script.Utility.Drawings["TargetDot"].Color = Settings.Rage.Visuals.Dot.Color
-                end
-
-                if ChamsShow then
-                    Script.Utility.Drawings["TargetChams"].FillColor = Settings.Rage.Visuals.Chams.Fill.Color
-                    Script.Utility.Drawings["TargetChams"].FillTransparency = Settings.Rage.Visuals.Chams.Fill.Transparency
-                    Script.Utility.Drawings["TargetChams"].OutlineTransparency = Settings.Rage.Visuals.Chams.Outline.Transparency
-                    Script.Utility.Drawings["TargetChams"].OutlineColor = Settings.Rage.Visuals.Chams.Outline.Color
-                end
-            end
-
-            Script.Functions.AutoSelect = function()
-                if (Settings.Rage.Enabled and Settings.Rage.AutoSelect.Enabled) and (tick() - Script.Locals.AutoSelectTick >= Settings.Rage.AutoSelect.Cooldown.Amount and Settings.Rage.AutoSelect.Cooldown.Enabled or true) then
-                    local NewTarget = Script.Functions.GetClosestPlayer()
-                    Script.Locals.Target = NewTarget or nil
-                    Script.Locals.IsTargetting =  NewTarget and true or false
-                    Script.Locals.AutoSelectTick = tick()
-                end
-            end
-
-            Script.Functions.GunEvents = function()
-                local CurrentGun = Script.Functions.GetGun(LocalPlayer)
-
-                if CurrentGun and CurrentGun.IsGunEquipped and CurrentGun.Tool then
-                    if CurrentGun.Tool ~= Script.Locals.Gun.PreviousGun then
-                        Script.Locals.Gun.PreviousGun = CurrentGun.Tool
-                        Script.Locals.Gun.PreviousAmmo = 999
-
-                        --// Connections
-                        for _, Connection in pairs(Script.Connections.GunConnections) do
-                            Connection:Disconnect()
-                        end
-                        Script.Connections.GunConnections = {}
-                    end
-
-                    if not Script.Connections.GunConnections["GunActivated"] and Settings.Rage.Enabled and Settings.Rage.Silent and Script.Locals.AntiAimViewer.MouseRemoteFound then
-                        Script.Connections.GunConnections["GunActivated"] = Script.Functions.Connection(CurrentGun.Tool.Activated, function()
-                            if Script.Locals.IsTargetting and Script.Locals.Target then
-                                if Settings.Rage.AntiAimViewer then
-                                    local Arguments = Script.Locals.AntiAimViewer.MouseRemoteArgs
-
-                                    Arguments[Script.Locals.AntiAimViewer.MouseRemotePositionIndex] = Script.Functions.GetPredictedPosition()
-                                    Script.Locals.AntiAimViewer.MouseRemote:FireServer(unpack(Arguments))
-                                end
-                            end
-                        end)
-                    end
-
-
-                    if not Script.Connections.GunConnections["GunAmmoChanged"] then
-                        Script.Connections.GunConnections["GunAmmoChanged"] = Script.Functions.Connection(CurrentGun.Ammo:GetPropertyChangedSignal("Value") , function()
-                            local NewAmmo = CurrentGun.Ammo.Value
-                            if (NewAmmo < Script.Locals.Gun.PreviousAmmo or (game.GameId == 3985694250 and NewAmmo > Script.Locals.Gun.PreviousAmmo)) and Script.Locals.Gun.PreviousAmmo then
-
-                                local ChildAdded
-                                local ChildrenAdded = 0
-                                ChildAdded = Script.Functions.Connection(Script.Locals.BulletPath[game.GameId].ChildAdded, function(Object)
-                                    if Object.Name == "BULLET_RAYS" then
-                                        ChildrenAdded += 1
-                                        if (table.find(Script.Locals.Gun.Shotguns, CurrentGun.Tool.Name) and ChildrenAdded <= 5) or (ChildrenAdded == 1) then
-                                            local GunBeam = Object:WaitForChild("GunBeam")
-                                            local StartPos, EndPos = Object.Position, GunBeam.Attachment1.WorldPosition
-
-                                            if Settings.Visuals.BulletTracers.Enabled then
-                                                GunBeam:Destroy()
-                                                Script.Functions.Beam(StartPos, EndPos)
-                                            end
-
-                                            if Settings.Visuals.BulletImpacts.Enabled then
-                                                Script.Functions.Impact(EndPos)
-                                            end
-
-                                            if Settings.Visuals.OnHit.Enabled then
-                                                local Player = Script.Functions.GetClosestPlayerDamage(EndPos, 20)
-                                                if Player then
-                                                    if Settings.Visuals.OnHit.Effect.Enabled then
-                                                        Script.Functions.Effect(Player.Character.HumanoidRootPart)
-                                                    end
-
-                                                    if Settings.Visuals.OnHit.Sound.Enabled then
-                                                        local Sound = string.format("hitsounds/%s", Settings.Visuals.OnHit.Sound.Value)
-                                                        Script.Functions.PlaySound(getcustomasset(Sound), Settings.Visuals.OnHit.Sound.Volume)
-                                                    end
-
-                                                    if Settings.Visuals.OnHit.Chams.Enabled then
-                                                        Script.Functions.Hitcham(Player, Settings.Visuals.OnHit.Chams.Color)
-                                                    end
-                                                end
-                                            end
-                                            ChildAdded:Disconnect()
-                                        end
-                                    else
-                                        ChildAdded:Disconnect()
-                                    end
-                                end)      
-                            end
-                            Script.Locals.Gun.PreviousAmmo = NewAmmo
-                        end)
-                    end
-                end
-            end
-
-            Script.Functions.Air = function()
-                if Settings.Rage.Enabled and Script.Locals.IsTargetting and Script.Locals.Target and Settings.Rage.Air.Enabled then
-                    local Humanoid = Script.Locals.Target.Character.Humanoid
-
-                    if Humanoid:GetState() == Enum.HumanoidStateType.Freefall then
-                        Script.Locals.JumpOffset = Settings.Rage.Air.JumpOffset.Offset
-                    else
-                        Script.Locals.JumpOffset = 0
-                    end
-                end
-            end
-
-            Script.Functions.UpdateHealth = function()
-                if Settings.Visuals.OnHit.Enabled then
-                    for _, Player in pairs(Players:GetPlayers()) do
-                        if Player.Character and Player.Character.Humanoid then
-                            Script.Locals.PlayerHealth[Player.Name] = Player.Character.Humanoid.Health
-                        end
-                    end
-                end
-            end
-
-            Script.Functions.UpdateAtmosphere = function()
-                Lighting.FogColor = Settings.Visuals.World.Enabled and Settings.Visuals.World.Fog.Enabled and Settings.Visuals.World.Fog.Color or Script.Locals.World.FogColor
-                Lighting.FogStart = Settings.Visuals.World.Enabled and Settings.Visuals.World.Fog.Enabled and Settings.Visuals.World.Fog.Start or Script.Locals.World.FogStart
-                Lighting.FogEnd = Settings.Visuals.World.Enabled and Settings.Visuals.World.Fog.Enabled and Settings.Visuals.World.Fog.End or Script.Locals.World.FogEnd
-                Lighting.Ambient = Settings.Visuals.World.Enabled and Settings.Visuals.World.Ambient.Enabled and Settings.Visuals.World.Ambient.Color or Script.Locals.World.Ambient
-                Lighting.Brightness = Settings.Visuals.World.Enabled and Settings.Visuals.World.Brightness.Enabled and Settings.Visuals.World.Brightness.Value or Script.Locals.World.Brightness
-                Lighting.ClockTime = Settings.Visuals.World.Enabled and Settings.Visuals.World.ClockTime.Enabled and Settings.Visuals.World.ClockTime.Value or Script.Locals.World.ClockTime
-                Lighting.ExposureCompensation = Settings.Visuals.World.Enabled and Settings.Visuals.World.WorldExposure.Enabled and Settings.Visuals.World.WorldExposure.Value or Script.Locals.World.ExposureCompensation
-            end
-
-            Script.Functions.VelocitySpoof = function()
-                local ShowVisualizerDot = Settings.AntiAim.VelocitySpoofer.Enabled and Settings.AntiAim.VelocitySpoofer.Visualize.Enabled
-
-                Script.Utility.Drawings["VelocityDot"].Visible = ShowVisualizerDot
-
-
-                if Settings.AntiAim.VelocitySpoofer.Enabled then
-                    --// Variables
-                    local Type = Settings.AntiAim.VelocitySpoofer.Type
-                    local HumanoidRootPart = LocalPlayer.Character.HumanoidRootPart
-                    local Velocity = HumanoidRootPart.Velocity
-
-                    --// Main
-                    if Type == "Underground" then
-                        HumanoidRootPart.Velocity = HumanoidRootPart.Velocity + Vector3.new(0, -Settings.AntiAim.VelocitySpoofer.Yaw, 0)
-                    elseif Type == "Sky" then
-                        HumanoidRootPart.Velocity = HumanoidRootPart.Velocity + Vector3.new(0, Settings.AntiAim.VelocitySpoofer.Yaw, 0)
-                    elseif Type == "Multiplier" then
-                        HumanoidRootPart.Velocity = HumanoidRootPart.Velocity + Vector3.new(Settings.AntiAim.VelocitySpoofer.Yaw, Settings.AntiAim.VelocitySpoofer.Pitch, Settings.AntiAim.VelocitySpoofer.Roll)
-                    elseif Type == "Custom" then
-                        HumanoidRootPart.Velocity = Vector3.new(Settings.AntiAim.VelocitySpoofer.Yaw, Settings.AntiAim.VelocitySpoofer.Pitch, Settings.AntiAim.VelocitySpoofer.Roll)
-                    elseif Type == "Prediction Breaker" then
-                        HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
-                    end
-
-                    if ShowVisualizerDot then
-                        local ScreenPosition = Script.Functions.WorldToScreen(LocalPlayer.Character.HumanoidRootPart.Position + LocalPlayer.Character.HumanoidRootPart.Velocity * Settings.AntiAim.VelocitySpoofer.Visualize.Prediction)
-
-                        Script.Utility.Drawings["VelocityDot"].Position = ScreenPosition.Position
-                        Script.Utility.Drawings["VelocityDot"].Color = Settings.AntiAim.VelocitySpoofer.Visualize.Color
-                    end
-
-                    RunService.RenderStepped:Wait()
-                    HumanoidRootPart.Velocity = Velocity
-                end
-            end
-
-            Script.Functions.CSync = function()
-                Script.Utility.Drawings["CFrameVisualize"].Parent = Settings.AntiAim.CSync.Visualize.Enabled and Settings.AntiAim.CSync.Enabled and Script.AzureIgnoreFolder or nil
-
-                if Settings.AntiAim.CSync.Enabled then
-                    local Type = Settings.AntiAim.CSync.Type
-                    local FakeCFrame = LocalPlayer.Character.HumanoidRootPart.CFrame               
-                    Script.Locals.SavedCFrame = LocalPlayer.Character.HumanoidRootPart.CFrame
-                    if Type == "Custom" then
-                        FakeCFrame = FakeCFrame * CFrame.new(Settings.AntiAim.CSync.Custom.X, Settings.AntiAim.CSync.Custom.Y, Settings.AntiAim.CSync.Custom.Z)
-                    elseif Type == "Target Strafe" and Script.Locals.IsTargetting and Script.Locals.Target and Settings.Rage.Enabled then
-                        local CurrentTime = tick()
-                        FakeCFrame = CFrame.new(Script.Locals.Target.Character.HumanoidRootPart.Position) * CFrame.Angles(0, 2 * math.pi * CurrentTime * Settings.AntiAim.CSync.TargetStrafe.Speed % (2 * math.pi), 0) * CFrame.new(0, Settings.AntiAim.CSync.TargetStrafe.Height, Settings.AntiAim.CSync.TargetStrafe.Distance)
-                    elseif Type == "Local Strafe" then
-                        local CurrentTime = tick()
-                        FakeCFrame = CFrame.new(LocalPlayer.Character.HumanoidRootPart.Position) * CFrame.Angles(0, 2 * math.pi * CurrentTime * Settings.AntiAim.CSync.TargetStrafe.Speed % (2 * math.pi), 0) * CFrame.new(0, Settings.AntiAim.CSync.TargetStrafe.Height, Settings.AntiAim.CSync.TargetStrafe.Distance)
-                    elseif Type == "Random" then
-                        FakeCFrame = CFrame.new(LocalPlayer.Character.HumanoidRootPart.Position + Vector3.new(math.random(-Settings.AntiAim.CSync.RandomDistance, Settings.AntiAim.CSync.RandomDistance), math.random(-Settings.AntiAim.CSync.RandomDistance, Settings.AntiAim.CSync.RandomDistance), math.random(-Settings.AntiAim.CSync.RandomDistance, Settings.AntiAim.CSync.RandomDistance))) * CFrame.Angles(math.rad(math.random(0, 360)), math.rad(math.random(0, 360)), math.rad(math.random(0, 360)))
-                    elseif Type == "Random Target" and Script.Locals.IsTargetting and Script.Locals.Target and Settings.Rage.Enabled then
-                        FakeCFrame = CFrame.new(Script.Locals.Target.Character.HumanoidRootPart.Position + Vector3.new(math.random(-Settings.AntiAim.CSync.RandomDistance, Settings.AntiAim.CSync.RandomDistance), math.random(-Settings.AntiAim.CSync.RandomDistance, Settings.AntiAim.CSync.RandomDistance), math.random(-Settings.AntiAim.CSync.RandomDistance, Settings.AntiAim.CSync.RandomDistance))) * CFrame.Angles(math.rad(math.random(0, 360)), math.rad(math.random(0, 360)), math.rad(math.random(0, 360)))
-                    end
-
-                    Script.Utility.Drawings["CFrameVisualize"]:SetPrimaryPartCFrame(FakeCFrame)
-
-                    for _, Part in pairs(Script.Utility.Drawings["CFrameVisualize"]:GetChildren()) do
-                        Part.Color = Settings.AntiAim.CSync.Visualize.Color
-                    end
-
-                    LocalPlayer.Character.HumanoidRootPart.CFrame = FakeCFrame
-                    RunService.RenderStepped:Wait()
-                    LocalPlayer.Character.HumanoidRootPart.CFrame = Script.Locals.SavedCFrame
-                end
-            end
-
-            Script.Functions.Network = function()
-                if Settings.AntiAim.Network.Enabled then
-                    if (tick() - Script.Locals.NetworkPreviousTick) >= ((Settings.AntiAim.Network.Amount / math.pi) / 10000) or (Settings.AntiAim.Network.WalkingCheck and LocalPlayer.Character.Humanoid.MoveDirection.Magnitude > 0) then
-                        Script.Locals.NetworkShouldSleep = not Script.Locals.NetworkShouldSleep
-                        Script.Locals.NetworkPreviousTick = tick()
-                        sethiddenproperty(LocalPlayer.Character.HumanoidRootPart, "NetworkIsSleeping", Script.Locals.NetworkShouldSleep)
-                    end
-                end
-            end
-     
-            Script.Functions.Speed = function()
-                if Settings.Movement.Movement.Speed.Enabled then
-                    LocalPlayer.Character.HumanoidRootPart.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame + LocalPlayer.Character.Humanoid.MoveDirection * Settings.Movement.Movement.Speed.Amount
-                end
-            end
-
-            Script.Functions.VelocityDesync = function()
-                if Settings.AntiAim.VelocityDesync.Enabled then
-                    local HumanoidRootPart = LocalPlayer.Character.HumanoidRootPart
-                    local Velocity = HumanoidRootPart.Velocity
-                    local Amount = Settings.AntiAim.VelocityDesync.Range * 1000
-                    HumanoidRootPart.Velocity = Vector3.new(math.random(-Amount, Amount), math.random(-Amount, Amount), math.random(-Amount, Amount))
-                    RunService.RenderStepped:Wait()
-                    HumanoidRootPart.Velocity = Velocity
-                end
-            end
-
-            Script.Functions.FFlagDesync = function()
-                if Settings.AntiAim.FFlagDesync.Enabled then
-                    for FFlag, _ in pairs(Settings.AntiAim.FFlagDesync.FFlags) do
-                        local Value = Settings.AntiAim.FFlagDesync.Amount
-                        setfflag(FFlag, tostring(Value))
-
-                        RunService.RenderStepped:Wait()
-                        if Settings.AntiAim.FFlagDesync.SetNew then
-                            setfflag(FFlag, Settings.AntiAim.FFlagDesync.SetNewAmount)
-                        end
-                    end
-                end
-            end
-
-
-            --// Invisible Desync
-
-            Script.Functions.NoSlowdown = function()
-                if Settings.Movement.Exploits.NoSlowDown then
-                    for _, Slowdown in pairs(LocalPlayer.Character.BodyEffects.Movement:GetChildren()) do
-                        Slowdown:Destroy()
-                    end
-                end
-            end    
-
-            --// Horrid code
-            Script.Functions.UpdateCrosshair = function()
-                if Settings.Visuals.Crosshair.Enabled then
-                    local MouseX, MouseY
-                    local RotationAngle = Script.Locals.RotationAngle
-                    local RealSize = Settings.Visuals.Crosshair.Size * 2
-
-                    if not MouseX or not MouseY then
-                        MouseX, MouseY = UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y
-                    end
-
-                    local Gap = Settings.Visuals.Crosshair.Gap
-                    if Settings.Visuals.Crosshair.Rotation.Enabled then
-                        Script.Locals.RotationAngle = Script.Locals.RotationAngle + Settings.Visuals.Crosshair.Rotation.Speed
-                    else
-                        Script.Locals.RotationAngle = 0
-                    end
-
-                    Script.Utility.Drawings["CrosshairLeft"].Visible = true
-                    Script.Utility.Drawings["CrosshairLeft"].Color = Settings.Visuals.Crosshair.Color
-                    Script.Utility.Drawings["CrosshairLeft"].Thickness = 1
-                    Script.Utility.Drawings["CrosshairLeft"].Transparency = 1
-                    Script.Utility.Drawings["CrosshairLeft"].From = Vector2.new(MouseX + Gap, MouseY)
-                    Script.Utility.Drawings["CrosshairLeft"].To = Vector2.new(MouseX + RealSize, MouseY)
-                    if Settings.Visuals.Crosshair.Rotation.Enabled then
-                        Script.Utility.Drawings["CrosshairLeft"].From = Script.Functions.Rotate(Script.Utility.Drawings["CrosshairLeft"].From, Vector2.new(MouseX, MouseY), math.rad(RotationAngle))
-                        Script.Utility.Drawings["CrosshairLeft"].To = Script.Functions.Rotate(Script.Utility.Drawings["CrosshairLeft"].To, Vector2.new(MouseX, MouseY), math.rad(RotationAngle))
-                    end
-
-                    Script.Utility.Drawings["CrosshairRight"].Visible = true
-                    Script.Utility.Drawings["CrosshairRight"].Color = Settings.Visuals.Crosshair.Color
-                    Script.Utility.Drawings["CrosshairRight"].Thickness = 1
-                    Script.Utility.Drawings["CrosshairRight"].Transparency = 1
-                    Script.Utility.Drawings["CrosshairRight"].From = Vector2.new(MouseX - Gap, MouseY)
-                    Script.Utility.Drawings["CrosshairRight"].To = Vector2.new(MouseX - RealSize, MouseY)
-                    if Settings.Visuals.Crosshair.Rotation.Enabled then
-                        Script.Utility.Drawings["CrosshairRight"].From = Script.Functions.Rotate(Script.Utility.Drawings["CrosshairRight"].From, Vector2.new(MouseX, MouseY), math.rad(RotationAngle))
-                        Script.Utility.Drawings["CrosshairRight"].To = Script.Functions.Rotate(Script.Utility.Drawings["CrosshairRight"].To, Vector2.new(MouseX, MouseY), math.rad(RotationAngle))
-                    end
-
-                    Script.Utility.Drawings["CrosshairTop"].Visible = true
-                    Script.Utility.Drawings["CrosshairTop"].Color = Settings.Visuals.Crosshair.Color
-                    Script.Utility.Drawings["CrosshairTop"].Thickness = 1
-                    Script.Utility.Drawings["CrosshairTop"].Transparency = 1
-                    Script.Utility.Drawings["CrosshairTop"].From = Vector2.new(MouseX, MouseY + Gap)
-                    Script.Utility.Drawings["CrosshairTop"].To = Vector2.new(MouseX, MouseY + RealSize)
-                    if Settings.Visuals.Crosshair.Rotation.Enabled then
-                        Script.Utility.Drawings["CrosshairTop"].From = Script.Functions.Rotate(Script.Utility.Drawings["CrosshairTop"].From, Vector2.new(MouseX, MouseY), math.rad(RotationAngle))
-                        Script.Utility.Drawings["CrosshairTop"].To = Script.Functions.Rotate(Script.Utility.Drawings["CrosshairTop"].To, Vector2.new(MouseX, MouseY), math.rad(RotationAngle))
-                    end
-
-                    Script.Utility.Drawings["CrosshairBottom"].Visible = true
-                    Script.Utility.Drawings["CrosshairBottom"].Color = Settings.Visuals.Crosshair.Color
-                    Script.Utility.Drawings["CrosshairBottom"].Thickness = 1
-                    Script.Utility.Drawings["CrosshairBottom"].Transparency = 1
-                    Script.Utility.Drawings["CrosshairBottom"].From = Vector2.new(MouseX, MouseY - Gap)
-                    Script.Utility.Drawings["CrosshairBottom"].To = Vector2.new(MouseX, MouseY - RealSize)
-                    if Settings.Visuals.Crosshair.Rotation.Enabled then
-                        Script.Utility.Drawings["CrosshairBottom"].From = Script.Functions.Rotate(Script.Utility.Drawings["CrosshairBottom"].From, Vector2.new(MouseX, MouseY), math.rad(RotationAngle))
-                        Script.Utility.Drawings["CrosshairBottom"].To = Script.Functions.Rotate(Script.Utility.Drawings["CrosshairBottom"].To, Vector2.new(MouseX, MouseY), math.rad(RotationAngle))
-                    end
-                else
-                    Script.Utility.Drawings["CrosshairBottom"].Visible = false
-                    Script.Utility.Drawings["CrosshairTop"].Visible = false
-                    Script.Utility.Drawings["CrosshairRight"].Visible = false
-                    Script.Utility.Drawings["CrosshairLeft"].Visible = false
-                end
-            end
-
-            Script.Functions.UpdateLookAt = function()
-                if Settings.Rage.Enabled and Settings.Rage.LookAt and Script.Locals.IsTargetting and Script.Locals.Target then
-                    LocalPlayer.Character.Humanoid.AutoRotate = false
-                    LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(LocalPlayer.Character.HumanoidRootPart.CFrame.Position, Vector3.new(Script.Locals.Target.Character.HumanoidRootPart.CFrame.X, LocalPlayer.Character.HumanoidRootPart.CFrame.Position.Y, Script.Locals.Target.Character.HumanoidRootPart.CFrame.Z))
-                else
-                    LocalPlayer.Character.Humanoid.AutoRotate = true
-                end
-            end
-
-            Script.Functions.UpdateSpectate = function()
-                if Settings.Rage.Enabled and Settings.Rage.Spectate and Script.Locals.IsTargetting and Script.Locals.Target then
-                    Camera.CameraSubject = Script.Locals.Target.Character.Humanoid
-                else
-                    Camera.CameraSubject = LocalPlayer.Character.Humanoid
-                end
-            end
-        end
-
-        --// Esp Function
-        do
-
-        end 
+        -- More specific potential hooks (highly speculative without game-specific knowledge):
+        -- Hooking HumanoidRootPart's CFrame changes (if anti-cheat checks this directly)
+        -- This is generally not recommended as it can break game physics.
+        -- local originalCFrameSetter = hookmetamethod(player.Character.HumanoidRootPart, "__newindex", function(original, self, key, value)
+        --     if key == "CFrame" then
+        --         -- Potentially modify 'value' or suppress the write
+        --         -- print("Goonerhub Fly Hook: HRP CFrame set attempted!")
+        --     end
+        --     return original(self, key, value)
+        -- end)
     end
 
-    --// Drawing objects
-    do
-        Script.Utility.Drawings["FieldOfViewVisualizer"] = Script.Functions.CreateDrawing("Circle", {
-            Visible = Settings.Rage.Fov.Visualize.Enabled,
-            Color = Settings.Rage.Fov.Visualize.Color,
-            Radius = Settings.Rage.Fov.Radius
-        })
-
-        Script.Utility.Drawings["TargetTracer"] = Script.Functions.CreateDrawing("Line",{
-            Visible = false,
-            Color = Settings.Rage.Visuals.Tracer.Color,
-            Thickness = Settings.Rage.Visuals.Tracer.Thickness
-        })
-
-        Script.Utility.Drawings["TargetDot"] = Script.Functions.CreateDrawing("Circle", {
-            Visible = false,
-            Color = Settings.Rage.Visuals.Dot.Color,
-            Radius = Settings.Rage.Visuals.Dot.Size
-        })
-
-        Script.Utility.Drawings["VelocityDot"] = Script.Functions.CreateDrawing("Circle", {
-            Visible = false,
-            Color = Settings.AntiAim.VelocitySpoofer.Visualize.Color,
-            Radius = 6,
-            Filled = true
-        })
-
-        Script.Utility.Drawings["TargetChams"] = Script.Functions.Create("Highlight", {
-            Parent = nil,
-            FillColor = Settings.Rage.Visuals.Chams.Fill.Color,
-            FillTransparency = Settings.Rage.Visuals.Chams.Fill.Transparency,
-            OutlineColor = Settings.Rage.Visuals.Chams.Fill.Color,
-            OutlineTransparency = Settings.Rage.Visuals.Chams.Outline.Transparency
-        })
-
-        Script.Utility.Drawings["CrosshairTop"] = Script.Functions.CreateDrawing("Line", {
-            Color = Color3.fromRGB(255, 255, 255),
-            Thickness = 1,
-            Visible = false,
-            ZIndex = 10000
-        })
-
-        Script.Utility.Drawings["CrosshairBottom"] = Script.Functions.CreateDrawing("Line", {
-            Color = Color3.fromRGB(255, 255, 255),
-            Thickness = 1,
-            Visible = false,
-            ZIndex = 10000
-        })
-
-        Script.Utility.Drawings["CrosshairLeft"] = Script.Functions.CreateDrawing("Line", {
-            Color = Color3.fromRGB(255, 255, 255),
-            Thickness = 1,
-            Visible = false,
-            ZIndex = 10000
-        })
-
-        Script.Utility.Drawings["CrosshairRight"] = Script.Functions.CreateDrawing("Line", {
-            Color = Color3.fromRGB(255, 255, 255),
-            Thickness = 1,
-            Visible = false,
-            ZIndex = 10000
-        })
+    -- Call setupFlyHooks when the main script runs (assuming privileged environment)
+    setupFlyHooks()
 
 
-        Script.Utility.Drawings["CFrameVisualize"] = game:GetObjects("rbxassetid://9474737816")[1]; Script.Utility.Drawings["CFrameVisualize"].Head.Face:Destroy(); for _, v in pairs(Script.Utility.Drawings["CFrameVisualize"]:GetChildren()) do v.Transparency = v.Name == "HumanoidRootPart" and 1 or 0.70; v.Material = "Neon"; v.Color = Settings.AntiAim.CSync.Visualize.Color; v.CanCollide = false; v.Anchored = false end
-    end
+	local teleportStateUp = true
+    local currentTeleportTween = nil
 
+	handleTeleportToggle = function()
+		local char, _ = getPlayerCharacterAndHumanoid(player)
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if not hrp or State.isTeleporting then return end
 
-    --// Hitsounds
-    do
-        --// Hitsounds
-        Hitsounds = {
-            ["ginos bubbles.wav"] = "https://raw.githubusercontent.com/linemaster2/hitsounds/main/hitsound(3).wav",
-            ["bell.wav"] = "https://github.com/nyulachan/nyula/blob/main/Sounds/bell.wav?raw=true",
-            ["bepis.wav"] = "https://github.com/nyulachan/nyula/blob/main/Sounds/bepis.wav?raw=true",
-            ["bubble.wav"] = "https://github.com/nyulachan/nyula/blob/main/Sounds/bubble.wav?raw=true",
-            ["cock.wav"] = "https://github.com/nyulachan/nyula/blob/main/Sounds/cock.wav?raw=true",
-            ["cod.wav"] = "https://github.com/nyulachan/nyula/blob/main/Sounds/cod.wav?raw=true",
-            ["fatality.wav"] = "https://github.com/nyulachan/nyula/blob/main/Sounds/fatality.wav?raw=true",
-            ["phonk.wav"] = "https://github.com/nyulachan/nyula/blob/main/Sounds/phonk.wav?raw=true",
-            ["sparkle.wav"] = "https://github.com/nyulachan/nyula/blob/main/Sounds/sparkle.wav?raw=true",
-            ["rust headshot.wav"] = "https://raw.githubusercontent.com/linemaster2/hitsounds/main/eaolwpzhgsba.wav"
-        }
+        State.isTeleporting = true
+        local startCFrame = hrp.CFrame -- Capture the actual starting CFrame for the entire sequence
 
-        if not isfolder("hitsounds") then
-            makefolder("hitsounds")
+        local totalMoveVector
+        if teleportStateUp then
+            totalMoveVector = Vector3.new(0, Constants.TELEPORT_UP_INCREMENT * Constants.TELEPORT_UP_STEPS, 0)
+            -- UI.teleportUpButton.Text = "Teleport Down" -- Hidden UI
+        else
+            totalMoveVector = Vector3.new(0, -(Constants.TELEPORT_UP_INCREMENT * Constants.TELEPORT_UP_STEPS), 0)
+            -- UI.teleportUpButton.Text = "Teleport Up" -- Hidden UI
         end
 
-        for Name, Url in pairs(Hitsounds) do
-            local Path = "hitsounds" .. "/" .. Name
-            if not isfile(Path) then
-                writefile(Path, game:HttpGet(Url))
-            end
-        end
-    end
+        local targetCFrameOverall = startCFrame * CFrame.new(totalMoveVector) -- Calculate the final target CFrame
 
-    --// Hit Effects
-    do
-        --// Nova
-        do
-            local Part = Instance.new("Part")
-            Part.Parent = ReplicatedStorage
-
-            local Attachment = Instance.new("Attachment")
-            Attachment.Name = "Attachment"
-            Attachment.Parent = Part
-
-            Script.Locals.HitEffect = Attachment
-
-            local ParticleEmitter = Instance.new("ParticleEmitter")
-            ParticleEmitter.Name = "ParticleEmitter"
-            ParticleEmitter.Acceleration = Vector3.new(0, 0, 1)
-            ParticleEmitter.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 0, 0)),
-                ColorSequenceKeypoint.new(0.495, Color3.fromRGB(255, 0, 0)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0)),
-            })
-            ParticleEmitter.Lifetime = NumberRange.new(0.5, 0.5)
-            ParticleEmitter.LightEmission = 1
-            ParticleEmitter.LockedToPart = true
-            ParticleEmitter.Rate = 1
-            ParticleEmitter.Rotation = NumberRange.new(0, 360)
-            ParticleEmitter.Size = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 1),
-                NumberSequenceKeypoint.new(1, 10),
-                NumberSequenceKeypoint.new(1, 1),
-            })
-            ParticleEmitter.Speed = NumberRange.new(0, 0)
-            ParticleEmitter.Texture = "rbxassetid://1084991215"
-            ParticleEmitter.Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0),
-                NumberSequenceKeypoint.new(0, 0.1),
-                NumberSequenceKeypoint.new(0.534, 0.25),
-                NumberSequenceKeypoint.new(1, 0.5),
-                NumberSequenceKeypoint.new(1, 0),
-            })
-            ParticleEmitter.ZOffset = 1
-            ParticleEmitter.Parent = Attachment
-            local ParticleEmitter1 = Instance.new("ParticleEmitter")
-            ParticleEmitter1.Name = "ParticleEmitter"
-            ParticleEmitter1.Acceleration = Vector3.new(0, 1, -0.001)
-            ParticleEmitter1.Color = ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 0, 0)),
-                ColorSequenceKeypoint.new(0.495, Color3.fromRGB(255, 0, 0)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0)),
-            })
-            ParticleEmitter1.Lifetime = NumberRange.new(0.5, 0.5)
-            ParticleEmitter1.LightEmission = 1
-            ParticleEmitter1.LockedToPart = true
-            ParticleEmitter1.Orientation = Enum.ParticleOrientation.VelocityPerpendicular
-            ParticleEmitter1.Rate = 1
-            ParticleEmitter1.Rotation = NumberRange.new(0, 360)
-            ParticleEmitter1.Size = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 1),
-                NumberSequenceKeypoint.new(1, 10),
-                NumberSequenceKeypoint.new(1, 1),
-            })
-            ParticleEmitter1.Speed = NumberRange.new(0, 0)
-            ParticleEmitter1.Texture = "rbxassetid://1084991215"
-            ParticleEmitter1.Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0),
-                NumberSequenceKeypoint.new(0, 0.1),
-                NumberSequenceKeypoint.new(0.534, 0.25),
-                NumberSequenceKeypoint.new(1, 0.5),
-                NumberSequenceKeypoint.new(1, 0),
-            })
-            ParticleEmitter1.ZOffset = 1
-            ParticleEmitter1.Parent = Attachment
-        end
-    end
-
-    --// Connections
-    do
-        --// Rage Connections
-        do
-            Script.Functions.Connection(RunService.Heartbeat, function()
-                Script.Functions.MouseAim()
-
-                Script.Functions.Resolve()
-
-                Script.Functions.Air()
-
-                Script.Functions.UpdateLookAt()
-            end)
-
-            Script.Functions.Connection(RunService.RenderStepped, function()
-                Script.Functions.UpdateFieldOfView()
-
-                Script.Functions.UpdateTargetVisuals()
-
-                Script.Functions.AutoSelect()
-
-                Script.Functions.UpdateSpectate()
-            end)
-        end
-
-        --// Visual Connections
-        do
-            Script.Functions.Connection(RunService.RenderStepped, function()
-                Script.Functions.GunEvents()
-
-                Script.Functions.UpdateHealth()
-
-                Script.Functions.UpdateAtmosphere()
-
-                Script.Functions.UpdateCrosshair()
-            end)
-        end
-
-        --// Anti Aim Connection
-        do
-            Script.Functions.Connection(RunService.Heartbeat, function()
-                Script.Functions.VelocitySpoof()
-
-                Script.Functions.CSync()
-
-                Script.Functions.Fakelag()
-
-                Script.Functions.VelocityDesync()
-
-                Script.Functions.FFlagDesync()
-            end)
-        end
-
-        --// Movement Connections
-        do
-            Script.Functions.Connection(RunService.Heartbeat, function()
-                Script.Functions.Speed()
-
-                Script.Functions.NoSlowdown()
-            end)
-        end
-    end
-
-    --// Hooks
-    do
-        local __namecall
-        local __newindex
-        local __index
-
-        __index = hookmetamethod(game, "__index", LPH_NO_VIRTUALIZE(function(Self, Index)
-            if not checkcaller() and Settings.AntiAim.CSync.Enabled and Script.Locals.SavedCFrame and Index == "CFrame" and Self == LocalPlayer.Character.HumanoidRootPart then
-                return Script.Locals.SavedCFrame
-            end
-            return __index(Self, Index)
-        end))
-
-        __namecall = hookmetamethod(game, "__namecall", LPH_NO_VIRTUALIZE(function(Self, ...)
-            local Arguments = {...}
-            local Method = tostring(getnamecallmethod())
-
-            if not checkcaller() and Method == "FireServer" then
-                for _, Argument in pairs(Arguments) do
-                    if typeof(Argument) == "Vector3" then
-                        Script.Locals.AntiAimViewer.MouseRemote = Self
-                        Script.Locals.AntiAimViewer.MouseRemoteFound = true
-                        Script.Locals.AntiAimViewer.MouseRemoteArgs = Arguments
-                        Script.Locals.AntiAimViewer.MouseRemotePositionIndex = _
-
-                        if Settings.Rage.Enabled and Settings.Rage.Silent and not Settings.Rage.AntiAimViewer and Script.Locals.IsTargetting and Script.Locals.Target then
-                            Arguments[_] =  Script.Functions.GetPredictedPosition()
-                        end
-
-                        return __namecall(Self, unpack(Arguments))
-                    end
-                end
-            end
-            return __namecall(Self, ...)
-        end))
-
-        __newindex = hookmetamethod(game, "__newindex", LPH_NO_VIRTUALIZE(function(Self, Property, Value)
-            local CallingScript = getcallingscript()
-
-
-            --// Atmosphere caching
-            if not checkcaller() and Self == Lighting and Script.Locals.World[Property] ~= Value then
-                Script.Locals.World[Property] = Value 
-            end
-
-            --// No Recoil
-            if CallingScript.Name == "Framework" and Self == Camera and Property == "CFrame" and Settings.Movement.Exploits.Enabled and Settings.Movement.Exploits.NoRecoil then
+        local function performTweenStep(currentStep)
+            if not hrp or not hrp.Parent then
+                State.isTeleporting = false
                 return
             end
 
-            --// No Jump Cooldown
-            if CallingScript.Name == "Framework" and Self == LocalPlayer.Character.Humanoid and Property == "JumpPower" and Settings.Movement.Exploits.Enabled and Settings.Movement.Exploits.NoJumpCooldown then
-                return
-            end
+            -- Calculate the target CFrame for this specific step using Lerp
+            local alpha = currentStep / Constants.TELEPORT_UP_STEPS
+            local stepTargetCFrame = startCFrame:Lerp(targetCFrameOverall, alpha)
 
-            return __newindex(Self, Property, Value)
-        end))
-    end
-
-    do
-        --// UI
-        local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/Ziheim51000/test/main/azurev4lib"))()
-        local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/addons/SaveManager.lua"))()
-        local ThemeManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ackerware/thememanager/main/.lua"))()
-
-        --// Main Window
-        local Window = Library:CreateWindow({             
-            Title = "ackerware.lol",
-            Center = true,
-            AutoShow = true,
-            TabPadding = 8,
-            MenuFadeTime = 0.2
-        })
-
-        local Tabs = {
-            Rage = Window:AddTab("Rage"),
-            Visuals = Window:AddTab("Visuals"),
-            AntiAim = Window:AddTab("Anti Aim"),
-            Movement = Window:AddTab("Movement"),
-            Settings = Window:AddTab("Settings")
-        }
-
-        local Sections = {
-            Rage = {
-                Main = Tabs.Rage:AddLeftGroupbox("Main"),
-                Checks = Tabs.Rage:AddRightGroupbox("Checks"),
-                AutoSelect = Tabs.Rage:AddRightGroupbox("Auto Select"),
-                Visuals = Tabs.Rage:AddRightGroupbox("Visuals"),
-                Smoothing = Tabs.Rage:AddLeftGroupbox("Smoothing"),
-                Resolver = Tabs.Rage:AddLeftGroupbox("Resolver"),
-                FieldOfView = Tabs.Rage:AddLeftGroupbox("Field Of View"),
-                Air = Tabs.Rage:AddRightGroupbox("Air")
-            },
-            Visuals = {
-                --// Esp = Tabs.Visuals:AddLeftGroupbox("Esp"),
-                Atmosphere = Tabs.Visuals:AddLeftGroupbox("Atmosphere"),
-                Crosshair = Tabs.Visuals:AddLeftGroupbox("Crosshair"),
-                BulletTracers = Tabs.Visuals:AddRightGroupbox("Bullet Tracers"),
-                BulletImpacts = Tabs.Visuals:AddRightGroupbox("Bullet Impacts"),
-                OnHit = Tabs.Visuals:AddRightGroupbox("On Hit")
-            },
-            AntiAim = {                
-                CSync = Tabs.AntiAim:AddLeftGroupbox("C-Sync"),                
-                Fakelag = Tabs.AntiAim:AddLeftGroupbox("Fakelag"),                
-                VelocitySpoofer = Tabs.AntiAim:AddRightGroupbox("Velocity Spoofer"),
-                VelocityDesync = Tabs.AntiAim:AddRightGroupbox("Velocity Desync"),
-                FFlag = Tabs.AntiAim:AddRightGroupbox("FFlag Desync")                
-            },
-            Movement = {
-                Speed = Tabs.Movement:AddLeftGroupbox("CFrame Speed"),
-                Exploits = Tabs.Movement:AddRightGroupbox("Exploits"),
-                CframeFly = Tabs.Movement:AddLeftGroupbox("CFrame Fly")
-            }
-        }
-
-        --// Rage Tab
-        do
-            --// Main
-            do
-                Sections.Rage.Main:AddToggle("RageMainEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil
-                }):AddKeyPicker("RageMainToggle", {
-                    Default = "Q",
-                    SyncToggleState = false,
-                    Mode = "Toggle",
-                    Text = "Targetting",
-                    NoUI = false,
-                })
-
-                Toggles.RageMainEnabled:OnChanged(function()
-                    Settings.Rage.Enabled = Toggles.RageMainEnabled.Value
-                end)
-
-                Options.RageMainToggle:OnClick(function()
-                    if Settings.Rage.Enabled then
-                        Script.Locals.IsTargetting = not Script.Locals.IsTargetting
-
-                        local NewTarget = Script.Functions.GetClosestPlayer()
-                        Script.Locals.Target = Script.Locals.IsTargetting and NewTarget.Character and NewTarget or nil
-
-                        if Settings.Rage.Alerts then
-                            Library:Notify(string.format("Targetting: %s", Script.Locals.Target.Character.Humanoid.DisplayName))
-                        end
+            currentTeleportTween = TweenService:Create(hrp, TweenInfo.new(Constants.TELEPORT_UP_TWEEN_TIME, Enum.EasingStyle.Linear), {CFrame = stepTargetCFrame})
+            currentTeleportTween.Completed:Connect(function(status)
+                if status == Enum.TweenStatus.Completed then
+                    if currentStep < Constants.TELEPORT_UP_STEPS then
+                        performTweenStep(currentStep + 1)
+                    else
+                        State.isTeleporting = false
                     end
-                end)
-
-                Sections.Rage.Main:AddToggle("RageSilentEnabled", {
-                    Text = "Silent",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageSilentEnabled:OnChanged(function()
-                    Settings.Rage.Silent = Toggles.RageSilentEnabled.Value
-                end)
-
-                Sections.Rage.Main:AddToggle("RageMouseEnabled", {
-                    Text = "Mouse",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageMouseEnabled:OnChanged(function()
-                    Settings.Rage.Mouse = Toggles.RageMouseEnabled.Value
-                end)
-
-                Sections.Rage.Main:AddToggle("RageAlertsEnabled", {
-                    Text = "Alerts",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageAlertsEnabled:OnChanged(function()
-                    Settings.Rage.Alerts = Toggles.RageAlertsEnabled.Value
-                end)
-
-                Sections.Rage.Main:AddToggle("RageLookAtEnabled", {
-                    Text = "Look At",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageLookAtEnabled:OnChanged(function()
-                    Settings.Rage.LookAt = Toggles.RageLookAtEnabled.Value
-                end)
-
-                Sections.Rage.Main:AddToggle("RageSpectatEnabled", {
-                    Text = "Spectate",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageSpectatEnabled:OnChanged(function()
-                    Settings.Rage.Spectate = Toggles.RageSpectatEnabled.Value
-                end)
-
-                Sections.Rage.Main:AddToggle("RageAntiAimViewerEnabled", {
-                    Text = "Anti AimViewer",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageAntiAimViewerEnabled:OnChanged(function()
-                    Settings.Rage.AntiAimViewer = Toggles.RageAntiAimViewerEnabled.Value
-                end)
-
-                Sections.Rage.Main:AddDropdown("RageHitPartDropdown", {
-                    Values = {"Head","HumanoidRootPart","LeftHand","RightHand","LeftLowerArm","RightLowerArm","LeftUpperArm","RightUpperArm","LeftFoot","LeftLowerLeg","UpperTorso","LeftUpperLeg","RightFoot","RightLowerLeg","LowerTorso","RightUpperLeg"},
-                    Default = 2,
-                    Multi = false,
-
-                    Text = "Aim Part",
-                    Tooltip = nil
-                })
-
-                Options.RageHitPartDropdown:OnChanged(function()
-                    Settings.Rage.AimPart = Options.RageHitPartDropdown.Value
-                end)
-
-                Sections.Rage.Main:AddInput("RageVerticalPrediction", {
-                    Default = nil,
-                    Numeric = false,
-                    Finished = false,
-
-                    Text = "Vertical Prediction",
-                    Tooltip = nil,
-
-                    Placeholder = "Vertical Prediction Amount"
-                })
-
-                Options.RageVerticalPrediction:OnChanged(function()
-                    Settings.Rage.Prediction.Vertical = tonumber(Options.RageVerticalPrediction.Value)
-                end)
-
-                Sections.Rage.Main:AddInput("RageHorizontalPrediction", {
-                    Default = nil,
-                    Numeric = false,
-                    Finished = false,
-
-                    Text = "Horizontal Prediction",
-                    Tooltip = nil,
-
-                    Placeholder = "Horizontal Prediction Amount"
-                })
-
-
-                Options.RageHorizontalPrediction:OnChanged(function()
-                    Settings.Rage.Prediction.Horizontal = tonumber(Options.RageHorizontalPrediction.Value)
-                end)
-            end
-
-            --// Checks
-            do
-                Sections.Rage.Checks:AddToggle("RageChecksEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageChecksEnabled:OnChanged(function()
-                    Settings.Rage.Checks.Enabled = Toggles.RageChecksEnabled.Value
-                end)
-
-                Sections.Rage.Checks:AddToggle("RageChecksKnockedEnabled", {
-                    Text = "Knocked",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageChecksKnockedEnabled:OnChanged(function()
-                    Settings.Rage.Checks.Knocked = Toggles.RageChecksKnockedEnabled.Value
-                end)
-
-                Sections.Rage.Checks:AddToggle("RageChecksGrabbedEnabled", {
-                    Text = "Grabbed",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageChecksGrabbedEnabled:OnChanged(function()
-                    Settings.Rage.Checks.Grabbed = Toggles.RageChecksGrabbedEnabled.Value
-                end)
-
-                Sections.Rage.Checks:AddToggle("RageChecksCrewEnabled", {
-                    Text = "Crew",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageChecksCrewEnabled:OnChanged(function()
-                    Settings.Rage.Checks.Crew = Toggles.RageChecksCrewEnabled.Value
-                end)
-
-                Sections.Rage.Checks:AddToggle("RageChecksVehicleEnabled", {
-                    Text = "Vehicle",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageChecksVehicleEnabled:OnChanged(function()
-                    Settings.Rage.Checks.Vehicle = Toggles.RageChecksVehicleEnabled.Value
-                end)
-
-                Sections.Rage.Checks:AddToggle("RageChecksWallEnabled", {
-                    Text = "Wall",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageChecksWallEnabled:OnChanged(function()
-                    Settings.Rage.Checks.Wall = Toggles.RageChecksWallEnabled.Value
-                end)
-            end
-
-            --// Auto Select
-            do
-                Sections.Rage.AutoSelect:AddToggle("RageAutoSelectEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageAutoSelectEnabled:OnChanged(function()
-                    Settings.Rage.AutoSelect.Enabled = Toggles.RageAutoSelectEnabled.Value
-                end)
-
-                Sections.Rage.AutoSelect:AddToggle("RageAutoSelectCooldownEnabled", {
-                    Text = "Cooldown",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageAutoSelectCooldownEnabled:OnChanged(function()
-                    Settings.Rage.AutoSelect.Cooldown.Enabled = Toggles.RageAutoSelectCooldownEnabled.Value
-                end)
-
-                Sections.Rage.AutoSelect:AddSlider("RageAutoSelectCooldownAmount", {
-                    Text = "Cooldown Amount (MS)",
-                    Default = 0.1,
-                    Min = 0,
-                    Max = 1,
-                    Rounding = 3,
-                    Compact = false
-                })
-
-                Options.RageAutoSelectCooldownAmount:OnChanged(function()
-                    Settings.Rage.AutoSelect.Cooldown.Amount = Options.RageAutoSelectCooldownAmount.Value
-                end)
-            end
-
-            --// Smoothing
-            do
-                Sections.Rage.Smoothing:AddSlider("RageSmoothingVertical", {
-                    Text = "Vertical Smoothing",
-                    Default = 10,
-                    Min = 1,
-                    Max = 50,
-                    Rounding = 2,
-                    Compact = false
-                })
-
-                Options.RageSmoothingVertical:OnChanged(function()
-                    Settings.Rage.Smoothing.Vertical = Options.RageSmoothingVertical.Value
-                end)
-
-                Sections.Rage.Smoothing:AddSlider("RageSmoothingHorizontal", {
-                    Text = "Horizontal Smoothing",
-                    Default = 10,
-                    Min = 1,
-                    Max = 50,
-                    Rounding = 2,
-                    Compact = false
-                })
-
-                Options.RageSmoothingHorizontal:OnChanged(function()
-                    Settings.Rage.Smoothing.Horizontal = Options.RageSmoothingHorizontal.Value
-                end)
-            end
-
-            --// Resolver
-            do
-                Sections.Rage.Resolver:AddToggle("RageResolverEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageResolverEnabled:OnChanged(function()
-                    Settings.Rage.Resolver.Enabled = Toggles.RageResolverEnabled.Value
-                end)
-
-                Sections.Rage.Resolver:AddSlider("RageResolverRefreshRate", {
-                    Text = "Refresh Rate",
-                    Default = 200,
-                    Min = 1,
-                    Max = 1500,
-                    Rounding = 1,
-                    Compact = false
-                })
-
-                Options.RageResolverRefreshRate:OnChanged(function()
-                    Settings.Rage.Resolver.RefreshRate = Options.RageResolverRefreshRate.Value
-                end)
-            end
-
-            --// Field Of View
-            do
-                Sections.Rage.FieldOfView:AddToggle("RageFovEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageFovEnabled:OnChanged(function()
-                    Settings.Rage.Fov.Enabled = Toggles.RageFovEnabled.Value
-                end)
-
-                Sections.Rage.FieldOfView:AddToggle("RageFovVisualizeEnabled", {
-                    Text = "Visualize",
-                    Default = false,
-                    Tooltip = nil
-                }):AddColorPicker("RageFovVisualizeColor", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "Fov Visualize Color",
-                    Transparency = nil
-                })
-
-                Toggles.RageFovVisualizeEnabled:OnChanged(function()
-                    Settings.Rage.Fov.Visualize.Enabled = Toggles.RageFovVisualizeEnabled.Value
-                end)
-
-                Options.RageFovVisualizeColor:OnChanged(function()
-                    Settings.Rage.Fov.Visualize.Color = Options.RageFovVisualizeColor.Value
-                end)
-
-                Sections.Rage.FieldOfView:AddSlider("RageFieldOfViewRadius", {
-                    Text = "Radius",
-                    Default = 80,
-                    Min = 1,
-                    Max = 800,
-                    Rounding = 2,
-                    Compact = false
-                })
-
-                Options.RageFieldOfViewRadius:OnChanged(function()
-                    Settings.Rage.Fov.Radius = Options.RageFieldOfViewRadius.Value
-                end)
-            end
-
-            --// Visuals
-            do
-                Sections.Rage.Visuals:AddToggle("RageVisualsEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageVisualsEnabled:OnChanged(function()
-                    Settings.Rage.Visuals.Enabled = Toggles.RageVisualsEnabled.Value
-                end)
-
-                Sections.Rage.Visuals:AddToggle("RageVisualsTracerEnabled", {
-                    Text = "Tracer",
-                    Default = false,
-                    Tooltip = nil
-                }):AddColorPicker("RageVisualsTracerColor", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "Tracer Color",
-                    Transparency = nil
-                })
-
-                Toggles.RageVisualsTracerEnabled:OnChanged(function()
-                    Settings.Rage.Visuals.Tracer.Enabled = Toggles.RageVisualsTracerEnabled.Value
-                end)
-
-                Options.RageVisualsTracerColor:OnChanged(function()
-                    Settings.Rage.Visuals.Tracer.Color = Options.RageVisualsTracerColor.Value
-                end)
-
-                Sections.Rage.Visuals:AddSlider("RageVisualsTracerThickness", {
-                    Text = "Thickness",
-                    Default = 2,
-                    Min = 1,
-                    Max = 10,
-                    Rounding = 2,
-                    Compact = false
-                })
-
-                Options.RageVisualsTracerThickness:OnChanged(function()
-                    Settings.Rage.Visuals.Tracer.Thickness = Options.RageVisualsTracerThickness.Value
-                end)
-
-                Sections.Rage.Visuals:AddToggle("RageVisualsDotEnabled", {
-                    Text = "Dot",
-                    Default = false,
-                    Tooltip = nil
-                }):AddColorPicker("RageVisualsDotColor", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "Dot Color",
-                    Transparency = nil
-                })
-
-                Toggles.RageVisualsDotEnabled:OnChanged(function()
-                    Settings.Rage.Visuals.Dot.Enabled = Toggles.RageVisualsDotEnabled.Value
-                end)
-
-                Options.RageVisualsDotColor:OnChanged(function()
-                    Settings.Rage.Visuals.Dot.Color = Options.RageVisualsDotColor.Value
-                end)
-
-                Sections.Rage.Visuals:AddToggle("RageVisualsDotFilled", {
-                    Text = "Dot Filled",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageVisualsDotFilled:OnChanged(function()
-                    Settings.Rage.Visuals.Dot.Filled = Toggles.RageVisualsDotFilled.Value
-                end)
-
-                Sections.Rage.Visuals:AddSlider("RageVisualsDotSize", {
-                    Text = "Size",
-                    Default = 6,
-                    Min = 1,
-                    Max = 20,
-                    Rounding = 2,
-                    Compact = false
-                })
-
-                Options.RageVisualsDotSize:OnChanged(function()
-                    Settings.Rage.Visuals.Dot.Size = Options.RageVisualsDotSize.Value
-                end)
-
-                local TargetChamsToggle = Sections.Rage.Visuals:AddToggle("RageVisualsChamsEnabled", {
-                    Text = "Chams",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                TargetChamsToggle:AddColorPicker("RageVisualsChamsFillColor", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "Fill Color",
-                    Transparency = 0.5
-                })
-
-                TargetChamsToggle:AddColorPicker("RageVisualsChamsOutlineColor", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "Outline Color",
-                    Transparency = 0.5
-                })
-
-                Toggles.RageVisualsChamsEnabled:OnChanged(function()
-                    Settings.Rage.Visuals.Chams.Enabled = Toggles.RageVisualsChamsEnabled.Value
-                end)
-
-                Options.RageVisualsChamsFillColor:OnChanged(function()
-                    Settings.Rage.Visuals.Chams.Fill.Color = Options.RageVisualsChamsFillColor.Value
-                    Settings.Rage.Visuals.Chams.Fill.Transparency = Options.RageVisualsChamsFillColor.Transparency
-                end)
-
-                Options.RageVisualsChamsOutlineColor:OnChanged(function()
-                    Settings.Rage.Visuals.Chams.Outline.Color = Options.RageVisualsChamsOutlineColor.Value
-                    Settings.Rage.Visuals.Chams.Outline.Transparency = Options.RageVisualsChamsOutlineColor.Transparency
-                end)
-            end
-
-            --// Air
-            do
-                Sections.Rage.Air:AddToggle("RageAirEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageAirEnabled:OnChanged(function()
-                    Settings.Rage.Air.Enabled = Toggles.RageAirEnabled.Value
-                end)
-
-                Sections.Rage.Air:AddToggle("RageJumpOffsetEnabled", {
-                    Text = "Jump Offset",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.RageJumpOffsetEnabled:OnChanged(function()
-                    Settings.Rage.Air.JumpOffset.Enabled = Toggles.RageJumpOffsetEnabled.Value
-                end)
-
-                Sections.Rage.Air:AddSlider("RageJumpOffSet", {
-                    Text = "Offset",
-                    Default = 0.09,
-                    Min = -10,
-                    Max = 10,
-                    Rounding = 3,
-                    Compact = false
-                })
-
-                Options.RageJumpOffSet:OnChanged(function()
-                    Settings.Rage.Air.JumpOffset.Offset = Options.RageJumpOffSet.Value
-                end)
-            end
-        end
-
-        --// Visuals tab
-        do
- 
-            --// Bullet Tracers
-            do
-
-                local BulletTracersToggle = Sections.Visuals.BulletTracers:AddToggle("VisualsBulletTracersEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                BulletTracersToggle:AddColorPicker("VisualsBulletTracersColor1", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "Bullet Tracers Color Gradient 1",
-                    Transparency = nil
-                })
-
-                BulletTracersToggle:AddColorPicker("VisualsBulletTracersColor2", {
-                    Default = Color3.new(0, 0, 0),
-                    Title = "Bullet Tracers Color Gradient 2",
-                    Transparency = nil
-                })
-
-                Sections.Visuals.BulletTracers:AddToggle("VisualsBulletTracersFadeEnabled", {
-                    Text = "Fade",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Toggles.VisualsBulletTracersEnabled:OnChanged(function()
-                    Settings.Visuals.BulletTracers.Enabled = Toggles.VisualsBulletTracersEnabled.Value
-                end)
-
-                Toggles.VisualsBulletTracersFadeEnabled:OnChanged(function()
-                    Settings.Visuals.BulletTracers.Fade.Enabled = Toggles.VisualsBulletTracersFadeEnabled.Value
-                end)
-
-                Options.VisualsBulletTracersColor1:OnChanged(function()
-                    Settings.Visuals.BulletTracers.Color.Gradient1 = Options.VisualsBulletTracersColor1.Value
-                end)
-
-                Options.VisualsBulletTracersColor2:OnChanged(function()
-                    Settings.Visuals.BulletTracers.Color.Gradient2 = Options.VisualsBulletTracersColor2.Value
-                end)
-
-                Sections.Visuals.BulletTracers:AddSlider("VisualsBulletTracersDuration", {
-                    Text = "Duration",
-                    Default = 1,
-                    Min = 0.1,
-                    Max = 10,
-                    Rounding = 1,
-                    Compact = false
-                })
-
-                Sections.Visuals.BulletTracers:AddSlider("VisualsBulletTracersFadeDuration", {
-                    Text = "Fade Duration",
-                    Default = 0.5,
-                    Min = 0.1,
-                    Max = 10,
-                    Rounding = 1,
-                    Compact = false
-                })
-
-
-                Options.VisualsBulletTracersDuration:OnChanged(function()
-                    Settings.Visuals.BulletTracers.Duration = Options.VisualsBulletTracersDuration.Value
-                end)
-
-                Options.VisualsBulletTracersFadeDuration:OnChanged(function()
-                    Settings.Visuals.BulletTracers.Fade.Duration = Options.VisualsBulletTracersFadeDuration.Value
-                end)
-            end
-
-            --// Bullet Impacts
-            do
-                Sections.Visuals.BulletImpacts:AddToggle("VisualsBulletImpactsEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil
-                }):AddColorPicker("VisualsBulletImpactsColor", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "Bullet Impact Color",
-                    Transparency = nil
-                })
-
-                Sections.Visuals.BulletImpacts:AddToggle("VisualsBulletImpactsFadeEnabled", {
-                    Text = "Fade",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Sections.Visuals.BulletImpacts:AddDropdown("VisualsBulletImpactsMaterial", {
-                    Values = {"SmoothPlastic", "ForceField", "Neon"},
-                    Default = 1,
-                    Multi = false,
-
-                    Text = "Material",
-                    Tooltip = nil
-                })
-
-                Options.VisualsBulletImpactsMaterial:OnChanged(function()
-                    Settings.Visuals.BulletImpacts.Material = Options.VisualsBulletImpactsMaterial.Value
-                end)
-
-                Sections.Visuals.BulletImpacts:AddSlider("VisualsBulletImpactsSize", {
-                    Text = "Size",
-                    Default = 1,
-                    Min = 0.1,
-                    Max = 10,
-                    Rounding = 2,
-                    Compact = false
-                })
-
-                Sections.Visuals.BulletImpacts:AddSlider("VisualsBulletImpactsDuration", {
-                    Text = "Duration",
-                    Default = 1,
-                    Min = 0.1,
-                    Max = 10,
-                    Rounding = 1,
-                    Compact = false
-                })
-
-                Sections.Visuals.BulletImpacts:AddSlider("VisualsBulletImpactsFadeDuration", {
-                    Text = "Fade Duration",
-                    Default = 0.5,
-                    Min = 0.1,
-                    Max = 10,
-                    Rounding = 1,
-                    Compact = false
-                })
-
-
-                Options.VisualsBulletImpactsDuration:OnChanged(function()
-                    Settings.Visuals.BulletImpacts.Duration = Options.VisualsBulletImpactsDuration.Value
-                end)
-
-                Options.VisualsBulletImpactsSize:OnChanged(function()
-                    Settings.Visuals.BulletImpacts.Size = Options.VisualsBulletImpactsSize.Value
-                end)
-
-                Options.VisualsBulletImpactsFadeDuration:OnChanged(function()
-                    Settings.Visuals.BulletImpacts.Fade.Duration = Options.VisualsBulletImpactsFadeDuration.Value
-                end)
-
-                Toggles.VisualsBulletImpactsEnabled:OnChanged(function()
-                    Settings.Visuals.BulletImpacts.Enabled = Toggles.VisualsBulletImpactsEnabled.Value
-                end)
-
-                Toggles.VisualsBulletImpactsFadeEnabled:OnChanged(function()
-                    Settings.Visuals.BulletImpacts.Fade.Enabled = Toggles.VisualsBulletImpactsFadeEnabled.Value
-                end)
-
-                Options.VisualsBulletImpactsColor:OnChanged(function()
-                    Settings.Visuals.BulletImpacts.Color = Options.VisualsBulletImpactsColor.Value
-                end)
-            end
-
-            --// On Hit
-            do
-                Sections.Visuals.OnHit:AddToggle("VisualsOnHitEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Sections.Visuals.OnHit:AddToggle("VisualsOnHitEffectEnabled", {
-                    Text = "Effect",
-                    Default = false,
-                    Tooltip = nil
-                }):AddColorPicker("VisualsOnHitEffectColor", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "Bullet Impact Color",
-                    Transparency = nil
-                })
-
-                Sections.Visuals.OnHit:AddToggle("VisualsOnHiSoundEnabled", {
-                    Text = "Sound",
-                    Default = false,
-                    Tooltip = nil
-                })
-
-                Sections.Visuals.OnHit:AddSlider("VisualsOnHitSoundVolume", {
-                    Text = "Sound Volume",
-                    Default = 5,
-                    Min = 0.1,
-                    Max = 10,
-                    Rounding = 2,
-                    Compact = false
-                })
-
-                local Sounds = {}
-
-                for Sound, _ in pairs(Hitsounds) do
-                    table.insert(Sounds, Sound)
+                else
+                    State.isTeleporting = false -- Tween was cancelled or interrupted
                 end
-
-                Sections.Visuals.OnHit:AddDropdown("VisualsOnHitSound", {
-                    Values = Sounds,
-                    Default = 1,
-                    Multi = false,
-                    Text = "Sound To Play",
-                    Tooltip = nil
-                })
-
-
-                Sections.Visuals.OnHit:AddToggle("VisualsOnHitChamsEnabled", {
-                    Text = "Chams",
-                    Default = false,
-                    Tooltip = nil
-                }):AddColorPicker("VisualsOnHitChamsColor", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "Hit Chams Color",
-                    Transparency = nil
-                })
-
-                Sections.Visuals.OnHit:AddSlider("VisualsOnHitChamsDuration", {
-                    Text = "Duration",
-                    Default = 1,
-                    Min = 0.1,
-                    Max = 10,
-                    Rounding = 2,
-                    Compact = false
-                })
-
-                Sections.Visuals.OnHit:AddDropdown("VisualsOnHitChamsMaterial", {
-                    Values = {"ForceField", "Neon"},
-                    Default = 1,
-                    Multi = false,
-                    Text = "Material",
-                    Tooltip = nil
-                })
-
-                Options.VisualsOnHitChamsDuration:OnChanged(function()
-                    Settings.Visuals.OnHit.Chams.Duration = Options.VisualsOnHitChamsDuration.Value
-                end)
-
-                Options.VisualsOnHitChamsMaterial:OnChanged(function()
-                    Settings.Visuals.OnHit.Chams.Material = Options.VisualsOnHitChamsMaterial.Value
-                end)
-
-                Options.VisualsBulletImpactsMaterial:OnChanged(function()
-                    Settings.Visuals.BulletImpacts.Material = Options.VisualsBulletImpactsMaterial.Value
-                end)
-
-                Toggles.VisualsOnHitEnabled:OnChanged(function()
-                    Settings.Visuals.OnHit.Enabled = Toggles.VisualsOnHitEnabled.Value
-                end)
-
-                Toggles.VisualsOnHitChamsEnabled:OnChanged(function()
-                    Settings.Visuals.OnHit.Chams.Enabled = Toggles.VisualsOnHitChamsEnabled.Value
-                end)
-
-                Options.VisualsOnHitChamsColor:OnChanged(function()
-                    Settings.Visuals.OnHit.Chams.Color = Options.VisualsOnHitChamsColor.Value
-                end)
-
-                Toggles.VisualsOnHitEffectEnabled:OnChanged(function()
-                    Settings.Visuals.OnHit.Effect.Enabled = Toggles.VisualsOnHitEffectEnabled.Value
-                end)
-
-                Options.VisualsOnHitEffectColor:OnChanged(function()
-                    Settings.Visuals.OnHit.Effect.Color = Options.VisualsOnHitEffectColor.Value
-                end)
-
-                Toggles.VisualsOnHiSoundEnabled:OnChanged(function()
-                    Settings.Visuals.OnHit.Sound.Enabled = Toggles.VisualsOnHiSoundEnabled.Value
-                end)
-
-                Options.VisualsOnHitSoundVolume:OnChanged(function()
-                    Settings.Visuals.OnHit.Sound.Volume = Options.VisualsOnHitSoundVolume.Value
-                end)
-
-                Options.VisualsOnHitSound:OnChanged(function()
-                    Settings.Visuals.OnHit.Sound.Value = Options.VisualsOnHitSound.Value
-                end)
-            end
-
-            --// Atmosphere
-            do
-                Sections.Visuals.Atmosphere:AddToggle("VisualsAtmosphereEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil,
-                })
-
-
-                Toggles.VisualsAtmosphereEnabled:OnChanged(function()
-                    Settings.Visuals.World.Enabled = Toggles.VisualsAtmosphereEnabled.Value
-                end)
-
-                Sections.Visuals.Atmosphere:AddToggle("VisualsAtmosphereFogEnabled", {
-                    Text = "Fog",
-                    Default = false,
-                    Tooltip = nil,
-                }):AddColorPicker("VisualsAtmosphereFogColor", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "Fog Color",
-                    Transparency = nil,
-                })
-
-                Toggles.VisualsAtmosphereFogEnabled:OnChanged(function()
-                    Settings.Visuals.World.Fog.Enabled = Toggles.VisualsAtmosphereFogEnabled.Value
-                end)
-
-                Options.VisualsAtmosphereFogColor:OnChanged(function()
-                    Settings.Visuals.World.Fog.Color = Options.VisualsAtmosphereFogColor.Value
-                end)
-
-                Sections.Visuals.Atmosphere:AddSlider("VisualsAtmosphereFogStart", {
-                    Text = "Fog Start",
-                    Default = 1000,
-                    Min = 1,
-                    Max = 10000,
-                    Rounding = 0,
-                    Compact = false,
-                })
-
-                Sections.Visuals.Atmosphere:AddSlider("VisualsAtmosphereFogEnd", {
-                    Text = "Fog End",
-                    Default = 1000,
-                    Min = 1,
-                    Max = 10000,
-                    Rounding = 0,
-                    Compact = false,
-                })
-
-                Options.VisualsAtmosphereFogStart:OnChanged(function()
-                    Settings.Visuals.World.Fog.Start = Options.VisualsAtmosphereFogStart.Value
-                end)
-
-                Options.VisualsAtmosphereFogEnd:OnChanged(function()
-                    Settings.Visuals.World.Fog.End = Options.VisualsAtmosphereFogEnd.Value
-                end)
-
-                Sections.Visuals.Atmosphere:AddToggle("VisualsAtmosphereAmbientEnabled", {
-                    Text = "Ambient",
-                    Default = false,
-                    Tooltip = nil,
-                }):AddColorPicker("VisualsAtmosphereAmbientColor", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "Ambient Color",
-                    Transparency = nil,
-                })
-
-                Toggles.VisualsAtmosphereAmbientEnabled:OnChanged(function()
-                    Settings.Visuals.World.Ambient.Enabled = Toggles.VisualsAtmosphereAmbientEnabled.Value
-                end)
-
-                Options.VisualsAtmosphereAmbientColor:OnChanged(function()
-                    Settings.Visuals.World.Ambient.Color = Options.VisualsAtmosphereAmbientColor.Value
-                end)
-
-                Sections.Visuals.Atmosphere:AddToggle("VisualsAtmosphereBrightnessChangerEnabled", {
-                    Text = "Brightness Changer",
-                    Default = false,
-                    Tooltip = nil,
-                })
-
-                Sections.Visuals.Atmosphere:AddSlider("VisualsAtmosphereBrightnessChangerValue", {
-                    Text = "Brightness Value",
-                    Default = 0,
-                    Min = 0,
-                    Max = 10,
-                    Rounding = 2,
-                    Compact = false,
-                })
-
-                Toggles.VisualsAtmosphereBrightnessChangerEnabled:OnChanged(function()
-                    Settings.Visuals.World.Brightness.Enabled = Toggles.VisualsAtmosphereBrightnessChangerEnabled.Value
-                end)
-
-                Options.VisualsAtmosphereBrightnessChangerValue:OnChanged(function()
-                    Settings.Visuals.World.Brightness.Value = Options.VisualsAtmosphereBrightnessChangerValue.Value
-                end)
-
-                Sections.Visuals.Atmosphere:AddToggle("VisualsAtmosphereTimeChangerEnabled", {
-                    Text = "Clock Time",
-                    Default = false,
-                    Tooltip = nil,
-                })
-
-                Sections.Visuals.Atmosphere:AddSlider("VisualsAtmosphereTimeChangerValue", {
-                    Text = "Time",
-                    Default = 1,
-                    Min = 0.1,
-                    Max = 24,
-                    Rounding = 1,
-                    Compact = false,
-                })
-
-                Toggles.VisualsAtmosphereTimeChangerEnabled:OnChanged(function()
-                    Settings.Visuals.World.ClockTime.Enabled = Toggles.VisualsAtmosphereTimeChangerEnabled.Value
-                end)
-
-                Options.VisualsAtmosphereTimeChangerValue:OnChanged(function()
-                    Settings.Visuals.World.ClockTime.Value = Options.VisualsAtmosphereTimeChangerValue.Value
-                end)
-
-                Sections.Visuals.Atmosphere:AddToggle("VisualsAtmosphereExposureChangerEnabled", {
-                    Text = "Exposure Changer",
-                    Default = false,
-                    Tooltip = nil,
-                })
-
-                Sections.Visuals.Atmosphere:AddSlider("VisualsAtmosphereExposureChangerValue", {
-                    Text = "Exposure",
-                    Default = 1,
-                    Min = -3,
-                    Max = 3,
-                    Rounding = 1,
-                    Compact = false,
-                })
-
-                Toggles.VisualsAtmosphereExposureChangerEnabled:OnChanged(function()
-                    Settings.Visuals.World.WorldExposure.Enabled = Toggles.VisualsAtmosphereExposureChangerEnabled.Value
-                end)
-
-                Options.VisualsAtmosphereExposureChangerValue:OnChanged(function()
-                    Settings.Visuals.World.WorldExposure.Value = Options.VisualsAtmosphereExposureChangerValue.Value
-                end)
-            end
-
-            --// Crosshair
-            do
-                Sections.Visuals.Crosshair:AddToggle("VisualsCrosshairEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil,
-                }):AddColorPicker("VisualsCrossahairColor", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "Crosshair Color",
-                    Transparency = nil,
-                })
-
-                Toggles.VisualsCrosshairEnabled:OnChanged(function()
-                    Settings.Visuals.Crosshair.Enabled = Toggles.VisualsCrosshairEnabled.Value
-                end)
-
-                Options.VisualsCrossahairColor:OnChanged(function()
-                    Settings.Visuals.Crosshair.Color = Options.VisualsCrossahairColor.Value
-                end)
-
-                Sections.Visuals.Crosshair:AddSlider("VisualsCrosshairSize", {
-                    Text = "Size",
-                    Default = 1,
-                    Min = 0.1,
-                    Max = 30,
-                    Rounding = 3,
-                    Compact = false,
-                })
-
-                Options.VisualsCrosshairSize:OnChanged(function()
-                    Settings.Visuals.Crosshair.Size = Options.VisualsCrosshairSize.Value
-                end)
-
-                Sections.Visuals.Crosshair:AddSlider("VisualsCrosshairGap", {
-                    Text = "Gap",
-                    Default = 2,
-                    Min = 0.1,
-                    Max = 10,
-                    Rounding = 3,
-                    Compact = false,
-                })
-
-                Options.VisualsCrosshairGap:OnChanged(function()
-                    Settings.Visuals.Crosshair.Gap = Options.VisualsCrosshairGap.Value
-                end)
-
-                Sections.Visuals.Crosshair:AddToggle("VisualsCrosshairRotateEnabled", {
-                    Text = "Rotate",
-                    Default = false,
-                    Tooltip = nil,
-                })
-
-                Sections.Visuals.Crosshair:AddSlider("VisualsCrosshairRotateAmount", {
-                    Text = "Rotation Speed",
-                    Default = 1,
-                    Min = 0.1,
-                    Max = 10,
-                    Rounding = 3,
-                    Compact = false,
-                })
-
-                Toggles.VisualsCrosshairRotateEnabled:OnChanged(function()
-                    Settings.Visuals.Crosshair.Rotation.Enabled = Toggles.VisualsCrosshairRotateEnabled.Value
-                end)
-
-                Options.VisualsCrosshairRotateAmount:OnChanged(function()
-                    Settings.Visuals.Crosshair.Rotation.Speed = Options.VisualsCrosshairRotateAmount.Value
-                end)
-            end
-        end
-
-        --// Anti Aim
-        do
-
-            --// Velocity Spoofer
-            do
-                Sections.AntiAim.VelocitySpoofer:AddToggle("AntiAimVelocitySpooferEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil,
-                })
-
-                Toggles.AntiAimVelocitySpooferEnabled:OnChanged(function()
-                    Settings.AntiAim.VelocitySpoofer.Enabled = Toggles.AntiAimVelocitySpooferEnabled.Value
-                end)
-
-                Sections.AntiAim.VelocitySpoofer:AddDropdown("AntiAimVelocitySpooferType", {
-                    Values = {"Underground", "Sky", "Multiplier", "Prediction Breaker", "Custom"},
-                    Default = 1,
-                    Multi = false,
-
-                    Text = "Type",
-                    Tooltip = nil
-                })
-
-                Options.AntiAimVelocitySpooferType:OnChanged(function()
-                    Settings.AntiAim.VelocitySpoofer.Type = Options.AntiAimVelocitySpooferType.Value
-                end)
-
-                Sections.AntiAim.VelocitySpoofer:AddToggle("AntiAimVelocitySpooferVisualizeEnabled", {
-                    Text = "Visualize",
-                    Default = false,
-                    Tooltip = nil,
-                }):AddColorPicker("AntiAimVelocitySpooferVisualizeColor", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "Velocity Visualize Color",
-                    Transparency = nil,
-                })
-
-                Sections.AntiAim.VelocitySpoofer:AddInput("AntiAimVelocitySpooferVisualizePrediction", {
-                    Default = nil,
-                    Numeric = false,
-                    Finished = false,
-
-                    Text = "Visualize Prediction",
-                    Tooltip = nil,
-
-                    Placeholder = "Visualize Prediction Amount"
-                })
-
-                Options.AntiAimVelocitySpooferVisualizePrediction:OnChanged(function()
-                    Settings.AntiAim.VelocitySpoofer.Visualize.Prediction = tonumber(Options.AntiAimVelocitySpooferVisualizePrediction.Value)
-                end)
-
-                Toggles.AntiAimVelocitySpooferVisualizeEnabled:OnChanged(function()
-                    Settings.AntiAim.VelocitySpoofer.Visualize.Enabled = Toggles.AntiAimVelocitySpooferVisualizeEnabled.Value
-                end)
-
-                Options.AntiAimVelocitySpooferVisualizeColor:OnChanged(function()
-                    Settings.AntiAim.VelocitySpoofer.Visualize.Color = Options.AntiAimVelocitySpooferVisualizeColor.Value
-                end)
-
-                Sections.AntiAim.VelocitySpoofer:AddSlider("AntiAimVelocitySpooferYaw", {
-                    Text = "Yaw",
-                    Default = 0,
-                    Min = 0,
-                    Max = 100,
-                    Rounding = 3,
-                    Compact = false
-                })
-
-                Options.AntiAimVelocitySpooferYaw:OnChanged(function()
-                    Settings.AntiAim.VelocitySpoofer.Yaw = Options.AntiAimVelocitySpooferYaw.Value
-                end)
-
-                Sections.AntiAim.VelocitySpoofer:AddSlider("AntiAimVelocitySpooferPitch", {
-                    Text = "Pitch",
-                    Default = 0,
-                    Min = 0,
-                    Max = 100,
-                    Rounding = 3,
-                    Compact = false
-                })
-
-                Options.AntiAimVelocitySpooferPitch:OnChanged(function()
-                    Settings.AntiAim.VelocitySpoofer.Pitch = Options.AntiAimVelocitySpooferPitch.Value
-                end)
-
-                Sections.AntiAim.VelocitySpoofer:AddSlider("AntiAimVelocitySpooferRoll", {
-                    Text = "Roll",
-                    Default = 0,
-                    Min = 0,
-                    Max = 100,
-                    Rounding = 3,
-                    Compact = false
-                })
-
-                Options.AntiAimVelocitySpooferRoll:OnChanged(function()
-                    Settings.AntiAim.VelocitySpoofer.Roll = Options.AntiAimVelocitySpooferRoll.Value
-                end)
-            end
-
-            --// C-Sync
-            do
-                Sections.AntiAim.CSync:AddToggle("CSyncAntiAimEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil,
-                }):AddKeyPicker("CSyncAntiAimKeyPicker", {
-                    Default = "b",
-                    SyncToggleState = true,
-                    Mode = "Toggle",
-
-                    Text = "C-Sync",
-                    NoUI = false,
-                })
-
-                Toggles.CSyncAntiAimEnabled:OnChanged(function()
-                    Settings.AntiAim.CSync.Enabled = Toggles.CSyncAntiAimEnabled.Value
-                end)
-
-                Sections.AntiAim.CSync:AddToggle("CSyncAntiAimVisualizeEnabled", {
-                    Text = "Visualize",
-                    Default = false,
-                    Tooltip = nil,
-                }):AddColorPicker("CSyncAntiAimVisualizeColor", {
-                    Default = Color3.new(1, 1, 1),
-                    Title = "CFrame Visualize Color",
-                    Transparency = nil,
-                })
-
-                Sections.AntiAim.CSync:AddDropdown("CSyncAntiAimType", {
-                    Values = {"Custom", "Random", "Random Target", "Target Strafe", "Local Strafe"},
-                    Default = 1,
-                    Multi = false,
-                    Text = "Type",
-                    Tooltip = nil,
-                })
-
-                Toggles.CSyncAntiAimVisualizeEnabled:OnChanged(function()
-                    Settings.AntiAim.CSync.Visualize.Enabled = Toggles.CSyncAntiAimVisualizeEnabled.Value
-                end)
-
-                Options.CSyncAntiAimVisualizeColor:OnChanged(function()
-                    Settings.AntiAim.CSync.Visualize.Color = Options.CSyncAntiAimVisualizeColor.Value
-                end)
-
-                Options.CSyncAntiAimType:OnChanged(function()
-                    Settings.AntiAim.CSync.Type = Options.CSyncAntiAimType.Value
-                end)
-
-                Sections.AntiAim.CSync:AddSlider("CSyncAntiAimRandomRange", {
-                    Text = "Random Range",
-                    Default = 0.1,
-                    Min = 0,
-                    Max = 20,
-                    Rounding = 1,
-                    Compact = false,
-                })
-
-                Options.CSyncAntiAimRandomRange:OnChanged(function()
-                    Settings.AntiAim.CSync.RandomDistance = Options.CSyncAntiAimRandomRange.Value
-                end)
-
-                Sections.AntiAim.CSync:AddSlider("CSyncAntiAimCustomX", {
-                    Text = "Custom X",
-                    Default = 0.1,
-                    Min = 0,
-                    Max = 500,
-                    Rounding = 1,
-                    Compact = false,
-                })
-
-                Options.CSyncAntiAimCustomX:OnChanged(function()
-                    Settings.AntiAim.CSync.Custom.X = Options.CSyncAntiAimCustomX.Value
-                end)
-
-                Sections.AntiAim.CSync:AddSlider("CSyncAntiAimCustomY", {
-                    Text = "Custom Y",
-                    Default = 0.1,
-                    Min = 0,
-                    Max = 500,
-                    Rounding = 1,
-                    Compact = false,
-                })
-
-                Options.CSyncAntiAimCustomY:OnChanged(function()
-                    Settings.AntiAim.CSync.Custom.Y = Options.CSyncAntiAimCustomY.Value
-                end)
-
-                Sections.AntiAim.CSync:AddSlider("CSyncAntiAimCustomZ", {
-                    Text = "Custom Z",
-                    Default = 0.1,
-                    Min = 0,
-                    Max = 500,
-                    Rounding = 1,
-                    Compact = false,
-                })
-
-                Options.CSyncAntiAimCustomZ:OnChanged(function()
-                    Settings.AntiAim.CSync.Custom.Z = Options.CSyncAntiAimCustomZ.Value
-                end)
-
-                Sections.AntiAim.CSync:AddSlider("CSyncAntiAimTargetStrafeSpeed", {
-                    Text = "Target Strafe Speed",
-                    Default = 1,
-                    Min = 0,
-                    Max = 20,
-                    Rounding = 1,
-                    Compact = false,
-                })
-
-                Options.CSyncAntiAimTargetStrafeSpeed:OnChanged(function()
-                    Settings.AntiAim.CSync.TargetStrafe.Speed = Options.CSyncAntiAimTargetStrafeSpeed.Value
-                end)
-
-                Sections.AntiAim.CSync:AddSlider("CSyncAntiAimTargetStrafeDistance", {
-                    Text = "Target Strafe Distance",
-                    Default = 1,
-                    Min = 0,
-                    Max = 20,
-                    Rounding = 1,
-                    Compact = false,
-                })
-
-                Options.CSyncAntiAimTargetStrafeDistance:OnChanged(function()
-                    Settings.AntiAim.CSync.TargetStrafe.Distance = Options.CSyncAntiAimTargetStrafeDistance.Value
-                end)
-
-                Sections.AntiAim.CSync:AddSlider("CSyncAntiAimTargetStrafeHeight", {
-                    Text = "Target Strafe Height",
-                    Default = 1,
-                    Min = 0,
-                    Max = 20,
-                    Rounding = 1,
-                    Compact = false,
-                })
-
-                Options.CSyncAntiAimTargetStrafeHeight:OnChanged(function()
-                    Settings.AntiAim.CSync.TargetStrafe.Height = Options.CSyncAntiAimTargetStrafeHeight.Value
-                end)
-            end
-
-            --// Fake Lag
-            do
-                Sections.AntiAim.Fakelag:AddToggle("AntiAimFakelagEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil,
-                }):AddKeyPicker("AntiAimFakelagKeyPicker", {
-                    Default = "b",
-                    SyncToggleState = true,
-                    Mode = "Toggle",
-
-                    Text = "Fake lag",
-                    NoUI = false,
-                })
-
-                Toggles.AntiAimFakelagEnabled:OnChanged(function()
-                    Settings.AntiAim.Fakelag.Enabled = Toggles.AntiAimFakelagEnabled.Value
-                end)
-
-                Sections.AntiAim.Fakelag:AddToggle("AntiAimFakelagWalkingCheck", {
-                    Text = "Walking Check",
-                    Default = false,
-                    Tooltip = nil,
-                })
-
-                Toggles.AntiAimFakelagWalkingCheck:OnChanged(function()
-                    Settings.AntiAim.Fakelag.WalkingCheck = Toggles.AntiAimFakelagWalkingCheck.Value
-                end)
-
-                Sections.AntiAim.Fakelag:AddSlider("AntiAimFakelagAmount", {
-                    Text = "Lag Amount",
-                    Default = 0.1,
-                    Min = 0,
-                    Max = 30,
-                    Rounding = 3,
-                    Compact = false,
-                })
-
-                Options.AntiAimFakelagAmount:OnChanged(function()
-                    Settings.AntiAim.Fakelag.Amount = Options.AntiAimFakelagAmount.Value
-                end)
-            end
-
-            --// Velocity Desync
-            do
-                Sections.AntiAim.VelocityDesync:AddToggle("AntiAimVelocityDesyncEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil,
-                }):AddKeyPicker("AntiAimVelocityDesyncKeyPicker", {
-                    Default = "b",
-                    SyncToggleState = true,
-                    Mode = "Toggle",
-
-                    Text = "Velocity Desync",
-                    NoUI = false,
-                })
-
-                Toggles.AntiAimVelocityDesyncEnabled:OnChanged(function()
-                    Settings.AntiAim.VelocityDesync.Enabled = Toggles.AntiAimVelocityDesyncEnabled.Value
-                end)
-
-                Sections.AntiAim.VelocityDesync:AddSlider("AntiAimVelocityDesyncRange", {
-                    Text = "Range",
-                    Default = 1,
-                    Min = 0.1,
-                    Max = 10,
-                    Rounding = 3,
-                    Compact = false,
-                })
-
-                Options.AntiAimVelocityDesyncRange:OnChanged(function()
-                    Settings.AntiAim.VelocityDesync.Range = Options.AntiAimVelocityDesyncRange.Value
-                end)
-            end
-           
-            --// Velocity Desync
-            do
-                Sections.AntiAim.VelocityDesync:AddToggle("AntiAimVelocityDesyncEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil,
-                }):AddKeyPicker("AntiAimVelocityDesyncKeyPicker", {
-                    Default = "b",
-                    SyncToggleState = true,
-                    Mode = "Toggle",
-
-                    Text = "Velocity Desync",
-                    NoUI = false,
-                })
-
-                Toggles.AntiAimVelocityDesyncEnabled:OnChanged(function()
-                    Settings.AntiAim.VelocityDesync.Enabled = Toggles.AntiAimVelocityDesyncEnabled.Value
-                end)
-
-                Sections.AntiAim.VelocityDesync:AddSlider("AntiAimVelocityDesyncRange", {
-                    Text = "Randomization",
-                    Default = 200,
-                    Min = 1,
-                    Max = 1000,
-                    Rounding = 3,
-                    Compact = false,
-                })
-
-                Options.AntiAimVelocityDesyncRange:OnChanged(function()
-                    Settings.AntiAim.VelocityDesync.Range = Options.AntiAimVelocityDesyncRange.Value
-                end)
-            end
-
-            --// FFlag Desync
-            do  
-                Sections.AntiAim.FFlag:AddToggle("AntiAimFFlagDesyncEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil,
-                }):AddKeyPicker("AntiAimFFlagDesyncKeyPicker", {
-                    Default = "b",
-                    SyncToggleState = true,
-                    Mode = "Toggle",
-
-                    Text = "FFlag Desync",
-                    NoUI = false,
-                })
-
-                Toggles.AntiAimFFlagDesyncEnabled:OnChanged(function()
-                    Settings.AntiAim.FFlagDesync.Enabled = Toggles.AntiAimFFlagDesyncEnabled.Value
-
-                    if not Settings.AntiAim.FFlagDesync.Enabled then
-                        for FFlag, Value in pairs(Script.Locals.FFlags) do
-                            setfflag(FFlag, Value)
-                        end
-                    end
-                end)
-
-                Sections.AntiAim.FFlag:AddToggle("AntiAimFFlagDesyncSetNew", {
-                    Text = "Set New",
-                    Default = false,
-                    Tooltip = nil,
-                })
-
-                Toggles.AntiAimFFlagDesyncSetNew:OnChanged(function()
-                    Settings.AntiAim.FFlagDesync.SetNew = Toggles.AntiAimFFlagDesyncSetNew.Value
-                end)
-
-                Sections.AntiAim.FFlag:AddDropdown("AntiAimFFlagDesyncFFlags", {
-                    Values = {"S2PhysicsSenderRate", "PhysicsSenderMaxBandwidthBps", "DataSenderMaxJoinBandwidthBps"},
-                    Default = {"S2PhysicsSenderRate"},
-                    Multi = true,
-                    Text = "FFlags",
-                    Tooltip = nil,
-                })
-
-                Options.AntiAimFFlagDesyncFFlags:OnChanged(function()
-                    Settings.AntiAim.FFlagDesync.FFlags = Options.AntiAimFFlagDesyncFFlags.Value
-                end)
-
-                Sections.AntiAim.FFlag:AddSlider("AntiAimFFlagDesyncAmount", {
-                    Text = "Amount",
-                    Default = 2,
-                    Min = 0.1,
-                    Max = 10,
-                    Rounding = 3,
-                    Compact = false,
-                })
-
-                Options.AntiAimFFlagDesyncAmount:OnChanged(function()
-                    Settings.AntiAim.FFlagDesync.Amount = Options.AntiAimFFlagDesyncAmount.Value
-                end)
-
-                Sections.AntiAim.FFlag:AddSlider("AntiAimFFlagDesyncSetnewAmount", {
-                    Text = "Set New Amount",
-                    Default = 15,
-                    Min = 0.1,
-                    Max = 20,
-                    Rounding = 3,
-                    Compact = false,
-                })
-
-                Options.AntiAimFFlagDesyncSetnewAmount:OnChanged(function()
-                    Settings.AntiAim.FFlagDesync.SetNewAmount = Options.AntiAimFFlagDesyncSetnewAmount.Value
-                end)
-            end            
-        end
- 
-        --// Movement
-        do
-
-            --// Speed
-            do
-                Sections.Movement.Speed:AddToggle("MovementCFrameSpeedEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil,
-                }):AddKeyPicker("MovementCFrameSpeedKeybind", {
-                    Default = "b",
-                    SyncToggleState = true,
-                    Mode = "Toggle",
-
-                    Text = "Speed",
-                    NoUI = false,
-                })
-
-                Toggles.MovementCFrameSpeedEnabled:OnChanged(function()
-                    Settings.Movement.Movement.Speed.Enabled = Toggles.MovementCFrameSpeedEnabled.Value
-                end)
-
-                Sections.Movement.Speed:AddSlider("MovementCFrameSpeedAmount", {
-                    Text = "Speed Amount",
-                    Default = 0.1,
-                    Min = 0,
-                    Max = 10,
-                    Rounding = 3,
-                    Compact = false,
-                })
-
-                Options.MovementCFrameSpeedAmount:OnChanged(function()
-                    Settings.Movement.Movement.Speed.Amount = Options.MovementCFrameSpeedAmount.Value
-                end)
-            end
-                               
-            --// Cframe Fly
-            do
-                Sections.Movement.CframeFly:AddToggle("MovementCFrameFlyEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil,
-                }):AddKeyPicker("MovementCFrameFlyKeybind", {
-                    Default = "b",
-                    SyncToggleState = true,
-                    Mode = "Toggle",
-
-                    Text = "Speed",
-                    NoUI = false,
-                })
-
-                Toggles.MovementCFrameFlyEnabled:OnChanged(function()
-                    Settings.Movement.Movement.CframeFly.Enabled = Toggles.MovementCFrameFlyEnabled.Value
-                end)               
-            end
-            
-            --// Exploits
-            do
-                Sections.Movement.Exploits:AddToggle("MovementExploitsEnabled", {
-                    Text = "Enabled",
-                    Default = false,
-                    Tooltip = nil,
-                })
-
-                Toggles.MovementExploitsEnabled:OnChanged(function()
-                    Settings.Movement.Exploits.Enabled = Toggles.MovementExploitsEnabled.Value
-                end)
-
-                Sections.Movement.Exploits:AddToggle("MovementExploitsNoRecoil", {
-                    Text = "No Recoil",
-                    Default = false,
-                    Tooltip = nil,
-                })
-
-                Toggles.MovementExploitsNoRecoil:OnChanged(function()
-                    Settings.Movement.Exploits.NoRecoil = Toggles.MovementExploitsNoRecoil.Value
-                end)
-
-                Sections.Movement.Exploits:AddToggle("MovementExploitsNoJumpCooldown", {
-                    Text = "No Jumpcooldown",
-                    Default = false,
-                    Tooltip = nil,
-                })
-
-                Toggles.MovementExploitsNoJumpCooldown:OnChanged(function()
-                    Settings.Movement.Exploits.NoJumpCooldown = Toggles.MovementExploitsNoJumpCooldown.Value
-                end)
-
-                Sections.Movement.Exploits:AddToggle("MovementExploitsNoSlowdown", {
-                    Text = "No Slowdown",
-                    Default = false,
-                    Tooltip = nil,
-                })
-
-                Toggles.MovementExploitsNoSlowdown:OnChanged(function()
-                    Settings.Movement.Exploits.NoSlowDown = Toggles.MovementExploitsNoSlowdown.Value
-                end)
-            end
-        end
-
-        --// Settings Tab
-        do
-            local MenuGroup = Tabs.Settings:AddLeftGroupbox("Menu")
-
-            Library.KeybindFrame.Visible = true
-
-            MenuGroup:AddToggle("KeybindsListEnabled", {
-                Text = "Keybinds List",
-                Default = false,
-                Tooltip = nil,     
-            })
-
-            Toggles.KeybindsListEnabled:OnChanged(function()
-                Library.KeybindFrame.Visible = Toggles.KeybindsListEnabled.Value
             end)
+            currentTeleportTween:Play()
+        end
 
-            MenuGroup:AddButton("Unload", function() Library:Unload() end)
-            MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "End", NoUI = true, Text = "Menu keybind" })
-            Library.ToggleKeybind = Options.MenuKeybind
+        performTweenStep(1)
+		teleportStateUp = not teleportStateUp
+	end
 
-            ThemeManager:SetLibrary(Library)
-            SaveManager:SetLibrary(Library)
+	function updateSpeedRunState()
+		local newText = State.speedRunActive and "Speed Run: ON" or "Speed Run: OFF"
+		local newBgColor = State.speedRunActive and Config.Colors.Accent or Config.Colors.Inactive
+		TweenService:Create(UI.toggleButton, Config.ButtonTweenInfo, { BackgroundColor3 = newBgColor }):Play()
+		UI.toggleButton.Text = newText
 
-            ThemeManager:SetFolder("ackerware")
-            SaveManager:SetFolder("ackerware/configs")
+		local char, humanoid = getPlayerCharacterAndHumanoid(player)
+		local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
 
-            SaveManager:BuildConfigSection(Tabs.Settings)
-            ThemeManager:ApplyToTab(Tabs.Settings)
-        end            
-    end
+		if State.speedRunActive then
+			controls:Disable()
+			if char then
+				local animScript = char:FindFirstChild("Animate")
+				if animScript and animScript.Enabled then
+					State.originalAnimationScript = animScript
+					animScript.Enabled = false
+				end
+			end
+			if humanoid then
+				humanoid.AutoRotate = false
+				humanoid.WalkSpeed = 0 -- Set WalkSpeed to 0 for velocity-based movement
+			end
+			if animator then
+				if State.speedRunAnimTrack then State.speedRunAnimTrack:Stop() end
+				local runAnim = Instance.new("Animation")
+				runAnim.AnimationId = Constants.ANIMATION_RUN
+				State.speedRunAnimTrack = animator:LoadAnimation(runAnim)
+				State.speedRunAnimTrack.Looped = true
+				State.speedRunAnimTrack:Play()
+				runAnim:Destroy()
+			end
+		else
+			controls:Enable()
+			if State.speedRunAnimTrack then
+				State.speedRunAnimTrack:Stop()
+				State.speedRunAnimTrack = nil
+			end
+			if State.originalAnimationScript and State.originalAnimationScript.Parent then
+				State.originalAnimationScript.Enabled = true
+			end
+			State.originalAnimationScript = nil
+
+			if humanoid then
+				humanoid.AutoRotate = true
+				humanoid.WalkSpeed = Config.DefaultWalkSpeed
+			end
+            if hrp then
+                hrp.Velocity = Vector3.zero -- Stop any residual velocity
+            end
+		end
+	end
+
+	function updateFlyToggleButton()
+		local newText = State.flyEnabled and "Fly: ON" or "Fly: OFF"
+		local newBgColor = State.flyEnabled and Config.Colors.Accent or Config.Colors.Inactive
+		TweenService:Create(UI.flyToggleButton, Config.ButtonTweenInfo, { BackgroundColor3 = newBgColor }):Play()
+		UI.flyToggleButton.Text = newText
+	end
+
+	---[ UI UPDATE FUNCTIONS ]---
+	function updateInfiniteJumpCheckbox()
+		local newBgColor = State.infiniteJumpChecked and Config.Colors.Accent or Config.Colors.Inactive
+		TweenService:Create(UI.ijCheckbox, Config.ButtonTweenInfo, { BackgroundColor3 = newBgColor }):Play()
+	end
+
+	function updateSliderPosition(thumb, track, valueLabel, stateValue, minVal, maxVal, format)
+		if not track or not thumb then return end
+		local thumbSize = thumb.AbsoluteSize.X
+		local trackW = track.AbsoluteSize.X - thumbSize
+		if trackW <= 0 then trackW = 0 end
+		local norm = (stateValue - minVal) / (maxVal - minVal)
+		thumb.Position = UDim2.new(0, norm * trackW, 0.5, -thumbSize/2)
+		if valueLabel then
+			valueLabel.Text = string.format(format, stateValue)
+		end
+	end
+
+	function updateSpeedSliderPosition()
+		updateSliderPosition(UI.sliderThumb, UI.sliderTrack.Parent, UI.speedValueLabel, State.speedRunDistance, Config.SpeedRun.Min, Config.SpeedRun.Max, "%.3f")
+	end
+	function updateFlySliderPosition()
+		updateSliderPosition(UI.flySliderThumb, UI.flySliderTrack.Parent, State.flySpeed, Config.Fly.Min, Config.Fly.Max, "%.1f")
+	end
+
+	function updateInfiniteZoomCheckbox()
+		local newBgColor = State.infiniteZoomEnabled and Config.Colors.Accent or Config.Colors.Inactive
+		TweenService:Create(UI.infiniteZoomCheckbox, Config.ButtonTweenInfo, { BackgroundColor3 = newBgColor }):Play()
+		local defaultCameraMinZoomDistance = 0.5
+		local defaultCameraMaxZoomDistance = 400
+		player.CameraMinZoomDistance = State.infiniteZoomEnabled and 0.5 or defaultCameraMinZoomDistance
+		player.CameraMaxZoomDistance = State.infiniteZoomEnabled and Config.InfiniteZoom.Max or defaultCameraMaxZoomDistance
+		if State.infiniteZoomEnabled and player.CameraMode ~= Enum.CameraMode.Classic and player.CameraMode ~= Enum.CameraMode.Follow then
+			player.CameraMode = Enum.CameraMode.Classic
+		end
+	end
+	function updateESPCheckbox(checkbox, isEnabled)
+		local newBgColor = isEnabled and Config.Colors.Accent or Config.Colors.Inactive
+		TweenService:Create(checkbox, Config.ButtonTweenInfo, { BackgroundColor3 = newBgColor }):Play()
+	end
+	local currentPage = UI.homePage
+	function showPage(pageName)
+		local tabs = {
+			Home = { button = UI.homeTabButton, page = UI.homePage },
+			ESP = { button = UI.espTabButton, page = UI.espPage },
+			Fun = { button = UI.funTabButton, page = UI.funPage },
+			-- Removed Auto Buy Tab
+			Settings = { button = UI.settingsTabButton, page = UI.settingsPage },
+		}
+
+		local newPage = tabs[pageName] and tabs[pageName].page
+		if not newPage or newPage == currentPage then return end
+
+		if currentPage then
+			currentPage.Visible = false
+		end
+		newPage.Visible = true
+
+		for name, data in pairs(tabs) do
+			local isActive = (name == pageName)
+			TweenService:Create(data.button, Config.ButtonTweenInfo, { BackgroundColor3 = isActive and Config.Colors.Accent or Config.Colors.Inactive }):Play()
+		end
+
+		currentPage = newPage
+	end
+
+	---[ ESP LOGIC ]---
+	local function removePlayerESPFeature(userId, featureName, destroyMethod)
+		if State.highlightedPlayers[userId] and State.highlightedPlayers[userId][featureName] then
+			destroyMethod(State.highlightedPlayers[userId][featureName])
+			State.highlightedPlayers[userId][featureName] = nil
+			return true
+		end
+		return false
+	end
+	local function removePlayerHighlight(p) removePlayerESPFeature(p.UserId, "Highlight", function(h) h:Destroy() end) end
+	local function removePlayerDisplayName(p) removePlayerESPFeature(p.UserId, "NameGui", function(gui) gui:Destroy() end) end
+	local function removePlayerBox(p) removePlayerESPFeature(p.UserId, "Box", function(box) box:Destroy() end) end
+	local function removePlayerSkeleton(p)
+		if removePlayerESPFeature(p.UserId, "Dots", function(dots)
+				dots.Folder:Destroy()
+				for _, conn in ipairs(dots.Connections) do conn:Disconnect() end
+			end) then
+		end
+	end
+	local function removePlayerTracer(p)
+		removePlayerESPFeature(p.UserId, "Tracer", function(tracerData)
+			if tracerData.Beam then tracerData.Beam:Destroy() end
+			if tracerData.Attachment0 then tracerData.Attachment0:Destroy() end
+			if tracerData.Attachment1 then tracerData.Attachment1:Destroy() end
+		end)
+	end
+	local function applyPlayerHighlight(p)
+		if p == player or (State.highlightedPlayers[p.UserId] and State.highlightedPlayers[p.UserId].Highlight) then return end
+		local char = p.Character
+		if not char then return end
+		local highlight = Instance.new("Highlight")
+		highlight.FillColor = Config.Colors.HighlightFill
+		highlight.FillTransparency = State.espFillEnabled and 0.5 or 1 -- MODIFIED: Set transparency based on state
+		highlight.OutlineColor = Config.Colors.HighlightOutline
+		highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		highlight.Adornee = char
+		highlight.Parent = char
+		State.highlightedPlayers[p.UserId].Highlight = highlight
+	end
+	local function applyPlayerDisplayName(p)
+		if p == player or (State.highlightedPlayers[p.UserId] and State.highlightedPlayers[p.UserId].NameGui) then return end
+		local char = p.Character
+		local head = char and (char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart"))
+		if not head then return end
+		local nameGui = Instance.new("BillboardGui")
+		nameGui.AlwaysOnTop = true
+		nameGui.Size = UDim2.new(0, 150, 0, 50)
+		nameGui.StudsOffset = Vector3.new(0, 2.5, 0)
+		nameGui.Adornee = head
+		nameGui.Parent = char
+		local nameLabel = createTextLabel(nameGui, "NameLabel", UDim2.new(1, 0, 0.5, 0), nil, p.DisplayName, 16, Config.Colors.TextPrimary, Enum.Font.SourceSansBold, 1)
+		nameLabel.TextScaled = true
+		local distanceLabel = createTextLabel(nameGui, "DistanceLabel", UDim2.new(1, 0, 0.5, 0), UDim2.new(0, 0, 0.5, 0), "", 14, Color3.new(1,1,1), Enum.Font.SourceSans, 1)
+		distanceLabel.TextScaled = true
+		State.highlightedPlayers[p.UserId].NameGui = nameGui
+	end
+	local function applyPlayerSkeleton(p)
+		if p == player or (State.highlightedPlayers[p.UserId] and State.highlightedPlayers[p.UserId].Dots) then return end
+		local char, humanoid = getPlayerCharacterAndHumanoid(p)
+		if not humanoid then return end
+		local dotFolder = Instance.new("Folder", UI.screenGui)
+		dotFolder.Name = "DotAdornments_" .. p.UserId
+		local dotsData = { Adornments = {}, Connections = {}, Folder = dotFolder }
+		local partsToDot = humanoid.RigType == Enum.HumanoidRigType.R15 and {"Head", "UpperTorso", "LeftUpperArm", "RightUpperArm", "LeftUpperLeg", "RightUpperLeg"} or {"Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg"}
+		for _, partName in ipairs(partsToDot) do
+			local part = char:FindFirstChild(partName, true)
+			if part then
+				local dot = Instance.new("BoxHandleAdornment")
+				dot.Adornee, dot.AlwaysOnTop, dot.ZIndex, dot.Color3, dot.Size, dot.Transparency, dot.Parent = part, true, 5, Config.Colors.Skeleton, Vector3.new(0.3, 0.3, 0.3), 0.3, dotFolder
+				table.insert(dotsData.Adornments, dot)
+				table.insert(dotsData.Connections, part.AncestryChanged:Connect(function(_, newParent) if not newParent then dot:Destroy() end end))
+			end
+		end
+		State.highlightedPlayers[p.UserId].Dots = dotsData
+	end
+	local function applyPlayerBox(p)
+		if p == player or (State.highlightedPlayers[p.UserId] and State.highlightedPlayers[p.UserId].Box) then return end
+		local rootPart = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+		if not rootPart then return end
+		local box = Instance.new("BoxHandleAdornment")
+		box.AlwaysOnTop, box.ZIndex, box.Color3, box.Transparency, box.Adornee, box.Size, box.Parent = true, 5, Config.Colors.TextPrimary, 0.5, rootPart, Vector3.new(4, 6, 2), UI.screenGui
+		State.highlightedPlayers[p.UserId].Box = box
+	end
+	local function applyPlayerTracer(p)
+		if p == player or (State.highlightedPlayers[p.UserId] and State.highlightedPlayers[p.UserId].Tracer) then return end
+
+		local localChar, localHumanoid = getPlayerCharacterAndHumanoid(player)
+		if not localHumanoid then return end
+		local localTorsoName = localHumanoid.RigType == Enum.HumanoidRigType.R15 and "UpperTorso" or "Torso"
+		local localTorso = localChar:FindFirstChild(localTorsoName)
+		if not localTorso then return end
+
+		local targetChar, targetHumanoid = getPlayerCharacterAndHumanoid(p)
+		if not targetHumanoid then return end
+		local targetTorsoName = targetHumanoid.RigType == Enum.HumanoidRigType.R15 and "UpperTorso" or "Torso"
+		local targetTorso = targetChar:FindFirstChild(targetTorsoName)
+		if not targetTorso then return end
+
+		local attachment0 = Instance.new("Attachment", localTorso)
+		local attachment1 = Instance.new("Attachment", targetTorso)
+
+		local beam = Instance.new("Beam")
+		beam.Name = "TracerBeam"
+		beam.Attachment0 = attachment0
+		beam.Attachment1 = attachment1
+		beam.Color = ColorSequence.new(Color3.new(1, 1, 1))
+		beam.Width0 = 0.1
+		beam.Width1 = 0.1
+		beam.Transparency = NumberSequence.new(0.5)
+		beam.LightEmission = 1
+		beam.LightInfluence = 0
+		beam.FaceCamera = true
+		beam.Parent = localTorso
+
+		State.highlightedPlayers[p.UserId].Tracer = { Beam = beam, Attachment0 = attachment0, Attachment1 = attachment1 }
+	end
+	local function updateESPForPlayer(p)
+		if p == player then return end
+		if not State.highlightedPlayers[p.UserId] then return end
+
+		local char, _ = getPlayerCharacterAndHumanoid(p)
+		if not (char and char.Parent and char:FindFirstChild("HumanoidRootPart")) then
+			removePlayerHighlight(p); removePlayerDisplayName(p); removePlayerSkeleton(p); removePlayerBox(p); removePlayerTracer(p)
+			return
+		end
+
+		-- MODIFIED: Handle highlight and fill logic
+		if State.espEnabled then
+			applyPlayerHighlight(p) -- Ensures the highlight object exists
+			local data = State.highlightedPlayers[p.UserId]
+			if data and data.Highlight then
+				-- Update the fill transparency based on the fill checkbox
+				data.Highlight.FillTransparency = State.espFillEnabled and 0.5 or 1
+			end
+		else
+			removePlayerHighlight(p)
+		end
+
+		local needsNameGui = State.espDisplayNameEnabled or State.espDistanceEnabled
+		if needsNameGui then
+			applyPlayerDisplayName(p)
+			local data = State.highlightedPlayers[p.UserId]
+			if data and data.NameGui then
+				data.NameGui.NameLabel.Visible = State.espDisplayNameEnabled
+				data.NameGui.DistanceLabel.Visible = State.espDistanceEnabled
+			end
+		else
+			removePlayerDisplayName(p)
+		end
+		if State.espSkeletonEnabled then applyPlayerSkeleton(p) else removePlayerSkeleton(p) end
+		if State.espBoxEnabled then applyPlayerBox(p) else removePlayerBox(p) end
+		if State.espTracersEnabled then applyPlayerTracer(p) else removePlayerTracer(p) end
+	end
+	updateAllESPVisuals = function()
+		for _, p in pairs(Players:GetPlayers()) do
+			updateESPForPlayer(p)
+		end
+	end
+	local function fullCleanupESPForPlayer(p)
+		if not p or not State.highlightedPlayers[p.UserId] then return end
+		local data = State.highlightedPlayers[p.UserId]
+		if data.CharacterAdded and data.CharacterAdded.Connected then data.CharacterAdded:Disconnect() end
+		if data.CharacterRemoving and data.CharacterRemoving.Connected then data.CharacterRemoving:Disconnect() end
+		removePlayerHighlight(p); removePlayerDisplayName(p); removePlayerSkeleton(p); removePlayerBox(p); removePlayerTracer(p)
+		State.highlightedPlayers[p.UserId] = nil
+	end
+
+	local function setupPlayerEsp(p)
+		if not p or p == player or State.highlightedPlayers[p.UserId] then return end
+
+		State.highlightedPlayers[p.UserId] = {}
+		local data = State.highlightedPlayers[p.UserId]
+		data.CharacterAdded = p.CharacterAdded:Connect(function() task.wait(0.2); updateESPForPlayer(p) end)
+		data.CharacterRemoving = p.CharacterRemoving:Connect(function()
+			removePlayerHighlight(p)
+			removePlayerDisplayName(p)
+			removePlayerSkeleton(p)
+			removePlayerBox(p)
+			removePlayerTracer(p)
+		end)
+	end
+
+	local function removeAllBaseNameVisuals()
+		for plot, data in pairs(State.baseNameVisuals) do
+			if data.gui and data.gui.Parent then
+				data.gui:Destroy()
+			end
+			if data.connection and data.connection.Connected then
+				data.connection:Disconnect()
+			end
+		end
+		State.baseNameVisuals = {}
+	end
+
+	local function createOrUpdateVisualForPlot(plot)
+		local plotSign = plot:FindFirstChild("PlotSign")
+		if not plotSign then return end
+
+		local surfaceGui = plotSign:FindFirstChild("SurfaceGui")
+		if not surfaceGui then return end
+
+		local frame = surfaceGui:FindFirstChild("Frame")
+		if not frame then return end
+
+		local textLabel = frame:FindFirstChild("TextLabel")
+		if not textLabel then return end
+
+		local mainRoot = plot:FindFirstChild("MainRoot")
+		if not mainRoot then return end
+
+		local ownerName = textLabel.Text
+		local data = State.baseNameVisuals[plot]
+
+		if ownerName ~= "" and ownerName ~= "Player's Base" then
+			if not data or not data.gui or not data.gui.Parent then
+				if data and data.gui then data.gui:Destroy() end
+				local gui = Instance.new("BillboardGui")
+				gui.Name = "BaseNameGui"
+				gui.AlwaysOnTop = true
+				gui.Size = UDim2.new(0, 250, 0, 50)
+				gui.StudsOffset = Vector3.new(0, 10, 0)
+				gui.Adornee = mainRoot
+
+				local nameLabel = createTextLabel(gui, "NameLabel", UDim2.new(1, 0, 1, 0), nil, ownerName, 28, Color3.new(1,1,1), Enum.Font.SourceSansBold, 1)
+				nameLabel.TextStrokeColor3 = Color3.new(0,0,0)
+				nameLabel.TextStrokeTransparency = 0.5
+
+				gui.Parent = mainRoot
+				State.baseNameVisuals[plot] = {gui = gui, connection = nil}
+			else
+				data.gui.NameLabel.Text = ownerName
+			end
+		else
+			if data and data.gui then
+				data.gui:Destroy()
+				State.baseNameVisuals[plot] = nil
+			end
+		end
+	end
+
+	local function setupVisualForPlot(plot)
+		if not plot:IsA("Model") then return end
+
+		local textLabel = plot:FindFirstChild("PlotSign.SurfaceGui.Frame.TextLabel", true)
+
+		createOrUpdateVisualForPlot(plot)
+
+		if textLabel and (not State.baseNameVisuals[plot] or not State.baseNameVisuals[plot].connection) then
+			local connection = textLabel:GetPropertyChangedSignal("Text"):Connect(function()
+				createOrUpdateVisualForPlot(plot)
+			end)
+			if State.baseNameVisuals[plot] then
+				State.baseNameVisuals[plot].connection = connection
+			end
+		end
+	end
+
+	updateAllBaseNameVisuals = function()
+		local plotsFolder = Workspace:FindFirstChild(Constants.FOLDER_PLOTS)
+		if not plotsFolder then
+			removeAllBaseNameVisuals()
+			return
+		end
+
+		if State.showBaseNamesEnabled then
+			for _, plot in ipairs(plotsFolder:GetChildren()) do
+				setupVisualForPlot(plot)
+			end
+		else
+			removeAllBaseNameVisuals()
+		end
+	end
+
+	local function removeAllBaseTimerVisuals()
+		for plot, data in pairs(State.baseTimerVisuals) do
+			if data.gui and data.gui.Parent then
+				data.gui:Destroy()
+			end
+			if data.connection and data.connection.Connected then
+				data.connection:Disconnect()
+			end
+		end
+		State.baseTimerVisuals = {}
+	end
+
+	local function createOrUpdateTimerForPlot(base)
+		local timerLabel = base:FindFirstChild("RemainingTime", true)
+		if not timerLabel then return end
+
+		local adorneePart = base:FindFirstChild("Main") or base:FindFirstChild("PlotBlock") or base.PrimaryPart or base
+		if not adorneePart then return end
+
+		local timerText = timerLabel.Text
+		local data = State.baseTimerVisuals[base]
+
+		if data and not (data.gui and data.gui.Parent) then
+			if data.connection and data.connection.Connected then data.connection:Disconnect() end
+			data = nil
+		end
+
+		if not data then
+			local gui = Instance.new("BillboardGui")
+			gui.Name = "BaseTimerGui"
+			gui.AlwaysOnTop = true
+			gui.Size = UDim2.new(0, 250, 0, 50)
+			gui.StudsOffset = Vector3.new(0, 15, 0)
+			gui.Adornee = adorneePart
+
+			local nameLabel = createTextLabel(gui, "TimerLabel", UDim2.new(1, 0, 1, 0), nil, timerText, 28, Color3.new(1,1,1), Enum.Font.SourceSansBold, 1)
+			nameLabel.TextStrokeColor3 = Color3.new(0,0,0)
+			nameLabel.TextStrokeTransparency = 0.5
+
+			gui.Parent = adorneePart
+			State.baseTimerVisuals[base] = {gui = gui, connection = nil}
+		else
+			if data.gui and data.gui:FindFirstChild("TimerLabel") then
+				data.gui.TimerLabel.Text = timerText
+			end
+		end
+	end
+
+	local function setupTimerForPlot(base)
+		if not base:IsA("Model") then return end
+
+		local data = State.baseTimerVisuals[base]
+		if data and data.gui and data.gui.Parent and data.connection and data.connection.Connected then
+			return
+		end
+
+		local timerLabel = base:FindFirstChild("RemainingTime", true)
+
+		if timerLabel then
+			createOrUpdateTimerForPlot(base)
+
+			local currentData = State.baseTimerVisuals[base]
+			if currentData and (not currentData.connection or not currentData.connection.Connected) then
+				if currentData.connection and currentData.connection.Connected then
+					currentData.connection:Disconnect()
+				end
+				currentData.connection = timerLabel:GetPropertyChangedSignal("Text"):Connect(function()
+					createOrUpdateTimerForPlot(base)
+				end)
+			end
+		end
+	end
+
+	updateAllBaseTimerVisuals = function()
+		local baseContainer = Workspace:FindFirstChild(Constants.FOLDER_PLOTS) or Workspace:FindFirstChild(Constants.FOLDER_BASES)
+		if not baseContainer then
+			removeAllBaseTimerVisuals()
+			return
+		end
+
+		if State.showBaseTimerEnabled then
+			for _, base in ipairs(baseContainer:GetChildren()) do
+				setupTimerForPlot(base)
+			end
+		else
+			removeAllBaseTimerVisuals()
+		end
+	end
+
+	local brainrotGodNames = {
+		["Cocofanto Elefanto"] = true,
+		["Tralalero Tralala"] = true,
+		["Girafa"] = true,
+		["Odin Din Din Dun"] = true,
+		["Matteo"] = true,
+		["Trenostruzzo Turbo 3000"] = true,
+		["Gattatino Nyanino"] = true,
+		["Girafa Celestre"] = true
+	}
+
+	local function removeAllBrainrotGodVisuals()
+		for god, data in pairs(State.highlightedBrainrotGods) do
+			if data.Highlight and data.Highlight.Parent then
+				data.Highlight:Destroy()
+			end
+			if data.NameGui and data.NameGui.Parent then
+				data.NameGui:Destroy()
+			end
+		end
+		State.highlightedBrainrotGods = {}
+	end
+
+	local function setupBrainrotGodVisual(god)
+		if not god or not god:IsA("Model") then return end
+		if not State.highlightedBrainrotGods[god] then
+			State.highlightedBrainrotGods[god] = {}
+		end
+		local data = State.highlightedBrainrotGods[god]
+
+		-- Handle Highlight
+		if State.brainrotGodsEspEnabled then
+			if not data.Highlight then
+				local highlight = Instance.new("Highlight")
+				highlight.FillColor = Config.Colors.HighlightFill
+				highlight.FillTransparency = 0.5
+				highlight.OutlineColor = Config.Colors.HighlightOutline
+				highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+				highlight.Adornee = god
+				highlight.Parent = god
+				data.Highlight = highlight
+			end
+		else
+			if data.Highlight then
+				data.Highlight:Destroy()
+				data.Highlight = nil
+			end
+		end
+
+		-- Handle Name Tag
+		if State.espBrainrotGodNameEnabled and State.brainrotGodsEspEnabled then
+			if not data.NameGui then
+				local head = god.PrimaryPart or god:FindFirstChild("Head")
+				if head then
+					local nameGui = Instance.new("BillboardGui")
+					nameGui.AlwaysOnTop = true
+					nameGui.Size = UDim2.new(0, 200, 0, 50)
+					nameGui.StudsOffset = Vector3.new(0, 3, 0)
+					nameGui.Adornee = head
+					nameGui.Parent = god
+
+					local nameLabel = createTextLabel(nameGui, "NameLabel", UDim2.new(1, 0, 1, 0), nil, god.Name, 20, Config.Colors.TextPrimary, Enum.Font.SourceSansBold, 1)
+					nameLabel.TextStrokeColor3 = Color3.new(0,0,0)
+					nameLabel.TextStrokeTransparency = 0.5
+					data.NameGui = nameGui
+				end
+			end
+		else
+			if data.NameGui then
+				data.NameGui:Destroy()
+				data.NameGui = nil
+			end
+		end
+	end
+
+	updateAllBrainrotGodVisuals = function()
+		local currentGods = {}
+		for _, child in ipairs(Workspace:GetChildren()) do
+			if brainrotGodNames[child.Name] then
+				currentGods[child] = true
+				setupBrainrotGodVisual(child)
+			end
+		end
+
+		-- Cleanup for gods that no longer exist
+		for god, _ in pairs(State.highlightedBrainrotGods) do
+			if not currentGods[god] then
+				if State.highlightedBrainrotGods[god].Highlight then
+					State.highlightedBrainrotGods[god].Highlight:Destroy()
+				end
+				if State.highlightedBrainrotGods[god].NameGui then
+					State.highlightedBrainrotGods[god].NameGui:Destroy()
+				end
+				State.highlightedBrainrotGods[god] = nil
+			end
+		end
+	end
+
+	local secretNpcNames = {
+		["La Vacca Saturno Saturnita"] = true,
+		["Sammyni Spyderini"] = true,
+		["Los Tralaleritos"] = true,
+		["Graipuss Medussi"] = true,
+		["Garama"] = true,
+		["Madundung"] = true,
+		["La Grande Combinasion"] = true
+	}
+
+	local function removeAllSecretVisuals()
+		for npc, data in pairs(State.highlightedSecrets) do
+			if data.Highlight and data.Highlight.Parent then
+				data.Highlight:Destroy()
+			end
+			if data.NameGui and data.NameGui.Parent then
+				data.NameGui:Destroy()
+			end
+		end
+		State.highlightedSecrets = {}
+	end
+
+	local function setupSecretVisual(npc)
+		if not npc or not npc:IsA("Model") then return end
+		if not State.highlightedSecrets[npc] then
+			State.highlightedSecrets[npc] = {}
+		end
+		local data = State.highlightedSecrets[npc]
+
+		-- Handle Highlight
+		if State.highlightSecretsEnabled then
+			if not data.Highlight then
+				local highlight = Instance.new("Highlight")
+				highlight.FillColor = Config.Colors.HighlightFill
+				highlight.FillTransparency = 0.5
+				highlight.OutlineColor = Config.Colors.HighlightOutline
+				highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+				highlight.Adornee = npc
+				highlight.Parent = npc
+				data.Highlight = highlight
+			end
+		else
+			if data.Highlight then
+				data.Highlight:Destroy()
+				data.Highlight = nil
+			end
+		end
+
+		-- Handle Name Tag
+		if State.espSecretNameEnabled and State.highlightSecretsEnabled then
+			if not data.NameGui then
+				local head = npc.PrimaryPart or npc:FindFirstChild("Head")
+				if head then
+					local nameGui = Instance.new("BillboardGui")
+					nameGui.AlwaysOnTop = true
+					nameGui.Size = UDim2.new(0, 200, 0, 50)
+					nameGui.StudsOffset = Vector3.new(0, 3, 0)
+					nameGui.Adornee = head
+					nameGui.Parent = npc
+
+					local nameLabel = createTextLabel(nameGui, "NameLabel", UDim2.new(1, 0, 1, 0), nil, npc.Name, 20, Config.Colors.TextPrimary, Enum.Font.SourceSansBold, 1)
+					nameLabel.TextStrokeColor3 = Color3.new(0,0,0)
+					nameLabel.TextStrokeTransparency = 0.5
+					data.NameGui = nameGui
+				end
+			end
+		else
+			if data.NameGui then
+				data.NameGui:Destroy()
+				data.NameGui = nil
+			end
+		end
+	end
+
+	updateAllSecretVisuals = function()
+		local currentSecrets = {}
+		for _, child in ipairs(Workspace:GetChildren()) do
+			if secretNpcNames[child.Name] then
+				currentSecrets[child] = true
+				setupSecretVisual(child)
+			end
+		end
+
+		-- Cleanup for secrets that no longer exist
+		for npc, _ in pairs(State.highlightedSecrets) do
+			if not currentSecrets[npc] then
+				if State.highlightedSecrets[npc].Highlight then
+					State.highlightedSecrets[npc].Highlight:Destroy()
+				end
+				if State.highlightedSecrets[npc].NameGui then
+					State.highlightedSecrets[npc].NameGui:Destroy()
+				end
+				State.highlightedSecrets[npc] = nil
+			end
+		end
+	end
+
+	---[ EVENT CONNECTIONS & HANDLERS ]---
+	UI.homeTabButton.MouseButton1Click:Connect(function() showPage("Home") end)
+	UI.espTabButton.MouseButton1Click:Connect(function() showPage("ESP") end)
+	UI.funTabButton.MouseButton1Click:Connect(function() showPage("Fun") end)
+	-- Removed Auto Buy Tab Button Click
+	UI.settingsTabButton.MouseButton1Click:Connect(function() showPage("Settings") end)
+
+	UI.closeButton.MouseEnter:Connect(function() TweenService:Create(UI.closeButton, Config.ButtonTweenInfo, { BackgroundColor3 = Config.Colors.Error }):Play() end)
+	UI.closeButton.MouseLeave:Connect(function() TweenService:Create(UI.closeButton, Config.ButtonTweenInfo, { BackgroundColor3 = Color3.new(1, 1, 1) }):Play() end)
+
+	toggleSpeedRun = function()
+		State.speedRunActive = not State.speedRunActive
+		if State.speedRunActive and State.flyEnabled then
+			State.flyEnabled = false
+			updateFlyToggleButton()
+		end
+		updateSpeedRunState()
+		saveSettings()
+	end
+
+	toggleFly = function()
+		State.flyEnabled = not State.flyEnabled
+		if State.flyEnabled and State.speedRunActive then
+			State.speedRunActive = false
+			updateSpeedRunState()
+		end
+		updateFlyToggleButton()
+		saveSettings()
+	end
+
+	local function handleTeleportUpAction(_, inputState) if inputState == Enum.UserInputState.Begin then handleTeleportToggle() end return Enum.ContextActionResult.Pass end
+	local function handleToggleSpeedRun(_, inputState) if inputState == Enum.UserInputState.Begin then toggleSpeedRun() end return Enum.ContextActionResult.Pass end
+	local function handleToggleFly(_, inputState) if inputState == Enum.UserInputState.Begin then toggleFly() end return Enum.ContextActionResult.Pass end
+
+	local function handleToggleUI(_, inputState)
+		if inputState == Enum.UserInputState.Begin then
+			UI.mainFrame.Visible = not UI.mainFrame.Visible
+			UI.mobileToggleButton.Visible = not UI.mainFrame.Visible
+			if State.isMobile and UI.mobileControlsFrame then
+				UI.mobileControlsFrame.Visible = not UI.mainFrame.Visible
+			end
+		end
+		return Enum.ContextActionResult.Pass
+	end
+	local function handleInfiniteJump(_, inputState)
+		if inputState == Enum.UserInputState.Begin and State.infiniteJumpChecked and not State.flyEnabled then
+			local char, _ = getPlayerCharacterAndHumanoid(player)
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			if hrp then hrp.Velocity += Vector3.new(0, Config.InfiniteJump.Default, 0) end
+		end
+		return Enum.ContextActionResult.Pass
+	end
+
+	local function setKeybind(button, actionName, handler, currentKeyRef)
+		button.Text = "..."
+		TweenService:Create(button, Config.ButtonTweenInfo, { BackgroundColor3 = Config.Colors.AccentDark }):Play()
+		local conn
+		conn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+			if not gameProcessed and input.UserInputType == Enum.UserInputType.Keyboard then
+				ContextActionService:UnbindAction(actionName)
+				State[currentKeyRef] = input.KeyCode.Name
+				ContextActionService:BindAction(actionName, handler, false, input.KeyCode)
+				button.Text = input.KeyCode.Name
+				TweenService:Create(button, Config.ButtonTweenInfo, { BackgroundColor3 = Config.Colors.Inactive }):Play()
+				saveSettings()
+				conn:Disconnect()
+			end
+		end)
+	end
+	if not State.isMobile then
+		UI.setSpeedRunKeyButton.MouseButton1Click:Connect(function() setKeybind(UI.setSpeedRunKeyButton, Constants.ACTION_TOGGLE_SPEED, handleToggleSpeedRun, "toggleSpeedRunKey") end)
+		UI.uiKeybindButton.MouseButton1Click:Connect(function() setKeybind(UI.uiKeybindButton, Constants.ACTION_TOGGLE_UI, handleToggleUI, "toggleUIKey") end)
+		UI.setFlyKeyButton.MouseButton1Click:Connect(function() setKeybind(UI.setFlyKeyButton, Constants.ACTION_TOGGLE_FLY, handleToggleFly, "toggleFlyKey") end)
+		-- UI.setTeleportUpKeyButton.MouseButton1Click:Connect(function() setKeybind(UI.setTeleportUpKeyButton, Constants.ACTION_TELEPORT_UP, handleTeleportToggle, "toggleTeleportUpKey") end) -- Hidden
+	end
+	local function handleSliderDrag(thumb, track, stateKey, minVal, maxVal, updateFunc)
+		local dragging = false
+		thumb.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				dragging = true
+			end
+		end)
+		UserInputService.InputEnded:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				if dragging then
+					dragging = false
+					saveSettings()
+				end
+			end
+		end)
+		UserInputService.InputChanged:Connect(function(input)
+			if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+				local thumbSize = thumb.AbsoluteSize.X
+				local trackW = track.AbsoluteSize.X - thumbSize
+				if trackW <= 0 then return end
+				local relativeMouseX = input.Position.X - track.AbsolutePosition.X
+				local norm = math.clamp(relativeMouseX / trackW, 0, 1)
+				State[stateKey] = minVal + norm * (maxVal - minVal)
+				updateFunc()
+			end
+		end)
+	end
+	handleSliderDrag(UI.sliderThumb, UI.sliderTrack.Parent, "speedRunDistance", Config.SpeedRun.Min, Config.SpeedRun.Max, updateSpeedSliderPosition)
+	handleSliderDrag(UI.flySliderThumb, UI.flySliderTrack.Parent, "flySpeed", Config.Fly.Min, Config.Fly.Max, updateFlySliderPosition)
+
+	UI.ijCheckbox.MouseButton1Click:Connect(function()
+		State.infiniteJumpChecked = not State.infiniteJumpChecked
+		updateInfiniteJumpCheckbox()
+		if State.infiniteJumpChecked then ContextActionService:BindAction(Constants.ACTION_INFINITE_JUMP, handleInfiniteJump, false, Enum.KeyCode.Space)
+		else ContextActionService:UnbindAction(Constants.ACTION_INFINITE_JUMP) end
+		saveSettings()
+	end)
+	UI.infiniteZoomCheckbox.MouseButton1Click:Connect(function() State.infiniteZoomEnabled = not State.infiniteZoomEnabled; updateInfiniteZoomCheckbox(); saveSettings() end)
+	UI.antiAfkCheckbox.MouseButton1Click:Connect(function() State.antiAfkEnabled = not State.antiAfkEnabled; updateESPCheckbox(UI.antiAfkCheckbox, State.antiAfkEnabled); saveSettings() end)
+	UI.forceResetButton.MouseButton1Click:Connect(function()
+		local _, humanoid = getPlayerCharacterAndHumanoid(player)
+		if humanoid then
+			humanoid.Health = 0
+		end
+	end)
+	UI.smoothDragCheckbox.MouseButton1Click:Connect(function()
+		State.smoothDragEnabled = not State.smoothDragEnabled
+		updateESPCheckbox(UI.smoothDragCheckbox, State.smoothDragEnabled)
+		saveSettings()
+	end)
+	UI.autoSaveCheckbox.MouseButton1Click:Connect(function()
+		State.autoSaveEnabled = not State.autoSaveEnabled
+		updateESPCheckbox(UI.autoSaveCheckbox, State.autoSaveEnabled)
+		saveSettings(true)
+	end)
+
+	UI.toggleButton.MouseButton1Click:Connect(toggleSpeedRun)
+	UI.flyToggleButton.MouseButton1Click:Connect(toggleFly)
+	-- UI.teleportUpButton.MouseButton1Click:Connect(handleTeleportToggle) -- Hidden
+
+	UI.espEnableCheckbox.MouseButton1Click:Connect(function() State.espEnabled = not State.espEnabled; updateESPCheckbox(UI.espEnableCheckbox, State.espEnabled); updateAllESPVisuals(); saveSettings() end)
+
+	-- ADDED: Event handler for the new Fill checkbox
+	UI.espFillCheckbox.MouseButton1Click:Connect(function()
+		State.espFillEnabled = not State.espFillEnabled
+		updateESPCheckbox(UI.espFillCheckbox, State.espFillEnabled)
+		updateAllESPVisuals()
+		saveSettings()
+	end)
+
+	UI.espDisplayNameCheckbox.MouseButton1Click:Connect(function() State.espDisplayNameEnabled = not State.espDisplayNameEnabled; updateESPCheckbox(UI.espDisplayNameCheckbox, State.espDisplayNameEnabled); updateAllESPVisuals(); saveSettings() end)
+	UI.espDistanceCheckbox.MouseButton1Click:Connect(function() State.espDistanceEnabled = not State.espDistanceEnabled; updateESPCheckbox(UI.espDistanceCheckbox, State.espDistanceEnabled); updateAllESPVisuals(); saveSettings() end)
+	UI.espSkeletonCheckbox.MouseButton1Click:Connect(function() State.espSkeletonEnabled = not State.espSkeletonEnabled; updateESPCheckbox(UI.espSkeletonCheckbox, State.espSkeletonEnabled); updateAllESPVisuals(); saveSettings() end)
+	UI.espBoxCheckbox.MouseButton1Click:Connect(function() State.espBoxEnabled = not State.espBoxEnabled; updateESPCheckbox(UI.espBoxCheckbox, State.espBoxEnabled); updateAllESPVisuals(); saveSettings() end)
+	UI.espTracersCheckbox.MouseButton1Click:Connect(function() State.espTracersEnabled = not State.espTracersEnabled; updateESPCheckbox(UI.espTracersCheckbox, State.espTracersEnabled); updateAllESPVisuals(); saveSettings() end)
+	UI.showBaseNamesCheckbox.MouseButton1Click:Connect(function() State.showBaseNamesEnabled = not State.showBaseNamesEnabled; updateESPCheckbox(UI.showBaseNamesCheckbox, State.showBaseNamesEnabled); updateAllBaseNameVisuals(); saveSettings() end)
+	UI.showBaseTimerCheckbox.MouseButton1Click:Connect(function()
+		State.showBaseTimerEnabled = not State.showBaseTimerEnabled;
+		updateESPCheckbox(UI.showBaseTimerCheckbox, State.showBaseTimerEnabled);
+		updateAllBaseTimerVisuals();
+		saveSettings()
+	end)
+	UI.brainrotGodsEspCheckbox.MouseButton1Click:Connect(function()
+		State.brainrotGodsEspEnabled = not State.brainrotGodsEspEnabled;
+		updateESPCheckbox(UI.brainrotGodsEspCheckbox, State.brainrotGodsEspEnabled);
+		updateAllBrainrotGodVisuals();
+		saveSettings()
+	end)
+	UI.espBrainrotGodNameCheckbox.MouseButton1Click:Connect(function()
+		State.espBrainrotGodNameEnabled = not State.espBrainrotGodNameEnabled
+		updateESPCheckbox(UI.espBrainrotGodNameCheckbox, State.espBrainrotGodNameEnabled)
+		updateAllBrainrotGodVisuals()
+		saveSettings()
+	end)
+	UI.highlightSecretsCheckbox.MouseButton1Click:Connect(function()
+		State.highlightSecretsEnabled = not State.highlightSecretsEnabled;
+		updateESPCheckbox(UI.highlightSecretsCheckbox, State.highlightSecretsEnabled);
+		updateAllSecretVisuals();
+		saveSettings()
+	end)
+	UI.espSecretNameCheckbox.MouseButton1Click:Connect(function()
+		State.espSecretNameEnabled = not State.espSecretNameEnabled
+		updateESPCheckbox(UI.espSecretNameCheckbox, State.espSecretNameEnabled)
+		updateAllSecretVisuals()
+		saveSettings()
+	end)
+
+	UI.closeUIButton.MouseButton1Click:Connect(function()
+		UI.mainFrame.Visible = false
+		UI.mobileToggleButton.Visible = true
+		if State.isMobile and UI.mobileControlsFrame then
+			UI.mobileControlsFrame.Visible = false
+		end
+	end)
+	UI.closeButton.MouseButton1Click:Connect(function()
+		saveSettings(true) -- Force save on close
+		State.espEnabled, State.espFillEnabled, State.espDisplayNameEnabled, State.espDistanceEnabled, State.espSkeletonEnabled, State.espBoxEnabled, State.espTracersEnabled, State.showBaseNamesEnabled, State.showBaseTimerEnabled, State.brainrotGodsEspEnabled, State.highlightSecretsEnabled = false, false, false, false, false, false, false, false, false, false, false
+		updateAllESPVisuals()
+		updateAllBaseNameVisuals()
+		updateAllBaseTimerVisuals()
+		updateAllBrainrotGodVisuals()
+		updateAllSecretVisuals()
+		ContextActionService:UnbindAction(Constants.ACTION_TOGGLE_SPEED)
+		ContextActionService:UnbindAction(Constants.ACTION_TOGGLE_FLY)
+		ContextActionService:UnbindAction(Constants.ACTION_TOGGLE_UI)
+		ContextActionService:UnbindAction(Constants.ACTION_INFINITE_JUMP)
+		ContextActionService:UnbindAction(Constants.ACTION_TELEPORT_UP)
+		for _, connection in ipairs(State.globalConnections) do connection:Disconnect() end
+		controls:Enable()
+		UI.screenGui:Destroy()
+	end)
+
+	---[ GAME EVENT HANDLERS ]---
+	local function onCharacterAdded(char)
+		if isInitialCharacter then
+			isInitialCharacter = false
+			State.initialSpawnLocation = char:WaitForChild("HumanoidRootPart").Position
+		else
+			State.speedRunActive, State.flyEnabled = false, false
+			updateSpeedRunState()
+			updateFlyToggleButton()
+		end
+
+		-- Wait a moment for replication before updating visuals
+		task.wait(1)
+		if State.infiniteZoomEnabled then updateInfiniteZoomCheckbox() end
+		updateAllESPVisuals()
+		updateAllBaseNameVisuals()
+		updateAllBaseTimerVisuals()
+		updateAllBrainrotGodVisuals()
+		updateAllSecretVisuals()
+	end
+	table.insert(State.globalConnections, player.CharacterAdded:Connect(onCharacterAdded))
+
+	table.insert(State.globalConnections, Players.PlayerAdded:Connect(function(p)
+		task.wait(0.5)
+		setupPlayerEsp(p)
+		updateESPForPlayer(p)
+	end))
+	table.insert(State.globalConnections, Players.PlayerRemoving:Connect(fullCleanupESPForPlayer))
+
+	local function onIdle()
+		if State.antiAfkEnabled then
+			local _, humanoid = getPlayerCharacterAndHumanoid(player)
+			if humanoid then
+				humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+			end
+		end
+	end
+	table.insert(State.globalConnections, player.Idled:Connect(onIdle))
+
+	for _, p in pairs(Players:GetPlayers()) do
+		setupPlayerEsp(p)
+	end
+
+	local frameCounter = 0
+	table.insert(State.globalConnections, RunService.RenderStepped:Connect(function(delta)
+		local char, humanoid = getPlayerCharacterAndHumanoid(player)
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if not (hrp and humanoid and humanoid:GetState() ~= Enum.HumanoidStateType.Dead) then
+			return
+		end
+		if State.flyEnabled then
+			if not State.flyAttachment then
+				State.flyAttachment = Instance.new("Attachment", hrp)
+				State.flyLinearVelocity = Instance.new("LinearVelocity", State.flyAttachment)
+				State.flyLinearVelocity.MaxForce, State.flyLinearVelocity.Attachment0, State.flyLinearVelocity.RelativeTo = math.huge, State.flyAttachment, Enum.ActuatorRelativeTo.World
+				State.flyVectorForce = Instance.new("VectorForce", State.flyAttachment)
+				State.flyVectorForce.Force, State.flyVectorForce.Attachment0, State.flyVectorForce.RelativeTo = Vector3.new(0, Workspace.Gravity * hrp:GetMass(), 0), State.flyAttachment, Enum.ActuatorRelativeTo.World
+			end
+			local moveDirection
+			if State.isMobile then
+				moveDirection = humanoid.MoveDirection
+				if State.flyUpActive then moveDirection += Vector3.yAxis end
+				if State.flyDownActive then moveDirection -= Vector3.yAxis end
+			else
+				moveDirection = Vector3.new()
+				if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDirection += camera.CFrame.LookVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDirection -= camera.CFrame.LookVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDirection -= camera.CFrame.RightVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDirection += camera.CFrame.RightVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDirection += Vector3.yAxis end
+				if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDirection -= Vector3.yAxis end
+			end
+			State.flyLinearVelocity.VectorVelocity = moveDirection.Magnitude > 0 and moveDirection.Unit * State.flySpeed or Vector3.zero
+		elseif State.speedRunActive then
+			local lookVector = camera.CFrame.LookVector
+			local moveDirection = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
+
+            -- Velocity-based speed run
+            local currentSpeed = State.speedRunDistance * 200
+            hrp.Velocity = moveDirection * currentSpeed -- Apply velocity directly
+		else
+			if State.flyAttachment then State.flyAttachment:Destroy(); State.flyAttachment = nil end
+		end
+		frameCounter = frameCounter + 1
+		if frameCounter >= Constants.THROTTLE_INTERVAL_FAST then
+			frameCounter = 0
+			if State.espDistanceEnabled then
+				local localRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+				if localRoot then
+					for userId, data in pairs(State.highlightedPlayers) do
+						if data.NameGui and data.NameGui.DistanceLabel.Visible then
+							local p = Players:GetPlayerByUserId(userId)
+							local targetRoot = p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+							if targetRoot then
+								data.NameGui.DistanceLabel.Text = string.format("[%.1f studs]", (localRoot.Position - targetRoot.Position).Magnitude)
+							else
+								data.NameGui.DistanceLabel.Text = ""
+							end
+						end
+					end
+				end
+			end
+		end
+	end))
+
+	local function setupBaseListeners(container)
+		if not container then return end
+		table.insert(State.globalConnections, container.ChildAdded:Connect(function(base)
+			if State.showBaseTimerEnabled then
+				task.wait(0.5)
+				setupTimerForPlot(base)
+			end
+			if State.showBaseNamesEnabled then
+				task.wait(0.5)
+				setupVisualForPlot(base)
+			end
+		end))
+
+		table.insert(State.globalConnections, container.ChildRemoved:Connect(function(base)
+			local timerData = State.baseTimerVisuals[base]
+			if timerData then
+				if timerData.gui then timerData.gui:Destroy() end
+				if timerData.connection and timerData.connection.Connected then timerData.connection:Disconnect() end
+				State.baseTimerVisuals[base] = nil
+			end
+			local nameData = State.baseNameVisuals[base]
+			if nameData then
+				if nameData.gui then nameData.gui:Destroy() end
+				if nameData.connection and nameData.connection.Connected then nameData.connection:Disconnect() end
+				State.baseNameVisuals[base] = nil
+			end
+		end))
+	end
+
+	setupBaseListeners(Workspace:FindFirstChild(Constants.FOLDER_PLOTS))
+	setupBaseListeners(Workspace:FindFirstChild(Constants.FOLDER_BASES))
+
+	table.insert(State.globalConnections, Workspace.ChildAdded:Connect(function(child)
+		if brainrotGodNames[child.Name] and State.brainrotGodsEspEnabled then
+			setupBrainrotGodVisual(child)
+		end
+		if secretNpcNames[child.Name] and State.highlightSecretsEnabled then
+			setupSecretVisual(child)
+		end
+	end))
+	table.insert(State.globalConnections, Workspace.ChildRemoved:Connect(function(child)
+		if State.highlightedBrainrotGods[child] then
+			if State.highlightedBrainrotGods[child].Highlight then State.highlightedBrainrotGods[child].Highlight:Destroy() end
+			if State.highlightedBrainrotGods[child].NameGui then State.highlightedBrainrotGods[child].NameGui:Destroy() end
+			State.highlightedBrainrotGods[child] = nil
+		end
+		if State.highlightedSecrets[child] then
+			if State.highlightedSecrets[child].Highlight then State.highlightedSecrets[child].Highlight:Destroy() end
+			if State.highlightedSecrets[child].NameGui then State.highlightedSecrets[child].NameGui:Destroy() end
+			State.highlightedSecrets[child] = nil
+		end
+	end))
+
+	---[ BACKGROUND UPDATE LOOP ]---
+	local function backgroundLoop()
+		while UI.screenGui.Parent do -- Loop as long as the UI exists
+			pcall(function()
+				if State.showBaseTimerEnabled then
+					local baseContainer = Workspace:FindFirstChild(Constants.FOLDER_PLOTS) or Workspace:FindFirstChild(Constants.FOLDER_BASES)
+					if baseContainer then
+						for _, base in ipairs(baseContainer:GetChildren()) do
+							if base:IsA("Model") then
+								local data = State.baseTimerVisuals[base]
+								if not (data and data.gui and data.gui.Parent and data.connection and data.connection.Connected) then
+									setupTimerForPlot(base)
+								end
+							end
+						end
+					end
+				end
+			end)
+
+			pcall(function()
+				if State.showBaseNamesEnabled then
+					updateAllBaseNameVisuals()
+				end
+			end)
+
+			task.wait(Constants.BACKGROUND_LOOP_WAIT)
+		end
+	end
+
+	---[ INITIALIZATION ]---
+	local function applyInitialSettings()
+		updateSpeedSliderPosition()
+		updateInfiniteJumpCheckbox()
+		updateSpeedRunState()
+		updateInfiniteZoomCheckbox()
+		updateESPCheckbox(UI.espEnableCheckbox, State.espEnabled)
+		updateESPCheckbox(UI.espFillCheckbox, State.espFillEnabled) -- ADDED: Initialize new checkbox
+		updateESPCheckbox(UI.espDisplayNameCheckbox, State.espDisplayNameEnabled)
+		updateESPCheckbox(UI.espDistanceCheckbox, State.espDistanceEnabled)
+		updateESPCheckbox(UI.espSkeletonCheckbox, State.espSkeletonEnabled)
+		updateESPCheckbox(UI.espBoxCheckbox, State.espBoxEnabled)
+		updateESPCheckbox(UI.espTracersCheckbox, State.espTracersEnabled)
+		updateESPCheckbox(UI.showBaseNamesCheckbox, State.showBaseNamesEnabled)
+		updateESPCheckbox(UI.showBaseTimerCheckbox, State.showBaseTimerEnabled)
+		updateESPCheckbox(UI.brainrotGodsEspCheckbox, State.brainrotGodsEspEnabled)
+		updateESPCheckbox(UI.espBrainrotGodNameCheckbox, State.espBrainrotGodNameEnabled)
+		updateESPCheckbox(UI.highlightSecretsCheckbox, State.highlightSecretsEnabled)
+		updateESPCheckbox(UI.espSecretNameCheckbox, State.espSecretNameEnabled)
+		updateESPCheckbox(UI.antiAfkCheckbox, State.antiAfkEnabled)
+		updateESPCheckbox(UI.smoothDragCheckbox, State.smoothDragEnabled)
+		updateESPCheckbox(UI.autoSaveCheckbox, State.autoSaveEnabled)
+		updateFlySliderPosition()
+		updateFlyToggleButton()
+
+		if State.infiniteJumpChecked then
+			ContextActionService:BindAction(Constants.ACTION_INFINITE_JUMP, handleInfiniteJump, false, Enum.KeyCode.Space)
+		end
+
+		if State.toggleSpeedRunKey and Enum.KeyCode[State.toggleSpeedRunKey] then
+			UI.setSpeedRunKeyButton.Text = State.toggleSpeedRunKey
+			ContextActionService:BindAction(Constants.ACTION_TOGGLE_SPEED, handleToggleSpeedRun, false, Enum.KeyCode[State.toggleSpeedRunKey])
+		end
+		if State.toggleFlyKey and Enum.KeyCode[State.toggleFlyKey] then
+			UI.setFlyKeyButton.Text = State.toggleFlyKey
+			ContextActionService:BindAction(Constants.ACTION_TOGGLE_FLY, handleToggleFly, false, Enum.KeyCode[State.toggleFlyKey])
+		end
+		if State.toggleUIKey and Enum.KeyCode[State.toggleUIKey] then
+			UI.uiKeybindButton.Text = State.toggleUIKey
+			ContextActionService:BindAction(Constants.ACTION_TOGGLE_UI, handleToggleUI, false, Enum.KeyCode[State.toggleUIKey])
+		end
+		if State.toggleTeleportUpKey and Enum.KeyCode[State.toggleTeleportUpKey] then
+			-- Teleport Up keybind is still active, but its UI button is hidden
+			ContextActionService:BindAction(Constants.ACTION_TELEPORT_UP, handleTeleportUpAction, false, Enum.KeyCode[State.toggleTeleportUpKey])
+		end
+	end
+
+	applyInitialSettings()
+	-- Removed populateAutoBuyPage()
+	coroutine.wrap(backgroundLoop)() -- Start the background loop
+
+	if player.Character then
+		onCharacterAdded(player.Character)
+	else
+		-- if character hasn't loaded, initial visual updates might fail.
+		-- onCharacterAdded will handle it once the character appears.
+	end
+
 end
 
-load()
+---[ SCRIPT START ]---
+-- Load settings first to check for a saved key
+loadSettings()
 
-
+if State.savedKey == Config.Key then
+	runMainScript()
+else
+	createKeySystem()
+end
